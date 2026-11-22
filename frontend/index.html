@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AgroIA - Gestión Multiusuario, Gráficas y Galería</title>
+  <title>AgroIA - Acceso con Contraseña y Control de Campo</title>
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#1b5e20">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
@@ -17,12 +17,12 @@
     }
     .photo-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
       gap: 12px;
     }
     .photo-card img {
       width: 100%;
-      height: 130px;
+      height: 140px;
       object-fit: cover;
       border-radius: 6px;
     }
@@ -32,269 +32,306 @@
     }
     .lote-card:hover {
       transform: translateY(-2px);
-      box-shadow: 0 6px 16px rgba(0,0,0,0.08);
+      box-shadow: 0 6px 16px rgba(0,0,0,0.1);
     }
   </style>
 </head>
 <body class="has-background-light py-4 px-3">
   <div class="container" style="max-width: 1400px;">
-    
-    <!-- BARRA SUPERIOR MULTIUSUARIO -->
-    <div class="box has-background-success-dark has-text-white mb-4">
-      <div class="columns is-vcentered">
-        <div class="column">
-          <h1 class="title is-4 has-text-white mb-1">🌾 AgroIA - Control de Campo Multiusuario</h1>
-          <p class="is-size-7 has-text-success-light">Seguimiento por Lote/Parcela • Gráficas • Historial Fotográfico • Online y Sin Internet</p>
-        </div>
-        <div class="column is-narrow">
-          <div class="field has-addons mb-1">
-            <div class="control">
-              <span class="button is-small is-static">👤 Usuario:</span>
+
+    <!-- PANTALLA DE INICIO DE SESIÓN CON CONTRASEÑA -->
+    <div id="vista-login" class="columns is-centered mt-5">
+      <div class="column is-5">
+        <div class="box">
+          <div class="has-text-centered mb-4">
+            <h1 class="title is-4 has-text-success-dark mb-1">🔐 Ingreso a AgroIA</h1>
+            <p class="is-size-7 has-text-grey">Ingresa tu usuario y contraseña (funciona con o sin internet)</p>
+            <span id="estado-red-login" class="tag is-small is-success mt-2">🌐 En línea</span>
+          </div>
+
+          <form id="form-login">
+            <div class="field">
+              <label class="label is-small">Usuario</label>
+              <input id="login-nombre" class="input is-small" type="text" placeholder="Ej. Administrador General" required>
             </div>
-            <div class="control">
-              <div class="select is-small">
-                <select id="select-usuario" onchange="cambiarUsuarioActivo()"></select>
+            <div class="field">
+              <label class="label is-small">Contraseña</label>
+              <input id="login-password" class="input is-small" type="password" placeholder="Ingresa tu contraseña" required>
+            </div>
+            <button type="submit" class="button is-success is-fullwidth is-small mb-3">Ingresar</button>
+          </form>
+
+          <p id="login-error" class="has-text-danger is-size-7 mb-3" style="display:none;"></p>
+
+          <div class="box has-background-white-bis p-3 mb-3 is-size-7">
+            <p class="has-text-weight-bold mb-1">Usuarios iniciales de prueba:</p>
+            <p>• <strong>Administrador General</strong> — clave: <code>admin123</code></p>
+            <p>• <strong>Técnico Agropecuario</strong> — clave: <code>tecnico123</code></p>
+            <p>• <strong>Operario de Campo</strong> — clave: <code>campo123</code></p>
+          </div>
+
+          <button type="button" class="button is-light is-fullwidth is-small" onclick="toggleRegistroLogin()">
+            + Crear nuevo usuario con contraseña
+          </button>
+
+          <div id="box-registro-login" class="box has-background-light p-3 mt-3" style="display:none;">
+            <p class="title is-6 mb-2">Registrar Nuevo Usuario</p>
+            <div class="field">
+              <label class="label is-small">Nombre</label>
+              <input id="reg-nombre" class="input is-small" type="text" placeholder="Nombre completo">
+            </div>
+            <div class="field">
+              <label class="label is-small">Rol</label>
+              <div class="select is-small is-fullwidth">
+                <select id="reg-rol">
+                  <option value="Operario">Operario de Campo</option>
+                  <option value="Técnico">Técnico / Veterinario</option>
+                  <option value="Administrador">Administrador</option>
+                </select>
               </div>
             </div>
-            <div class="control">
-              <button type="button" class="button is-small is-warning" onclick="toggleNuevoUsuario()">+ Nuevo</button>
+            <div class="field">
+              <label class="label is-small">Contraseña (mín. 4 caracteres)</label>
+              <input id="reg-password" class="input is-small" type="password" placeholder="Crea una contraseña">
             </div>
-          </div>
-          <div class="has-text-right">
-            <span id="estado-red" class="tag is-small is-success">🌐 En línea</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Formulario rápido para crear usuario -->
-      <div id="box-nuevo-usuario" class="box p-3 mt-2 has-background-white-ter" style="display:none;">
-        <div class="columns is-mobile is-variable is-1 is-vcentered">
-          <div class="column">
-            <input id="nuevo-user-nombre" class="input is-small" type="text" placeholder="Nombre del trabajador o técnico">
-          </div>
-          <div class="column is-4">
-            <div class="select is-small is-fullwidth">
-              <select id="nuevo-user-rol">
-                <option value="Operario">Operario de Campo</option>
-                <option value="Técnico">Técnico / Veterinario</option>
-                <option value="Administrador">Administrador</option>
-              </select>
-            </div>
-          </div>
-          <div class="column is-narrow">
-            <button type="button" class="button is-small is-success" onclick="crearUsuario()">Guardar Usuario</button>
+            <button type="button" class="button is-info is-fullwidth is-small" onclick="crearUsuarioConClave()">Crear e Ingresar</button>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- VISTA 1: PANEL PRINCIPAL (FORMULARIO + LISTA DE LOTES) -->
-    <div id="vista-principal" class="columns">
-      <!-- IZQUIERDA: FORMULARIO DE REGISTRO -->
-      <div class="column is-5">
-        <div class="box">
-          <h2 class="title is-5 has-text-success mb-3">📝 Registrar Seguimiento</h2>
-          <form id="form-registro">
-            <div class="field">
-              <label class="label is-small">Categoría</label>
-              <div class="select is-small is-fullwidth">
-                <select id="categoria" onchange="cambiarCategoria()">
-                  <option value="cultivo">🌱 Cultivo (Maíz, Yuca, Ñame, Plátano)</option>
-                  <option value="animal">🐄 Animal (Gallinas, Pollos, Cerdo, Vaca y Reses)</option>
-                </select>
-              </div>
-            </div>
+    <!-- APLICACIÓN PRINCIPAL -->
+    <div id="app-autenticada" style="display:none;">
 
-            <!-- CULTIVOS -->
-            <div id="bloque-cultivo" class="box has-background-white-bis p-3">
-              <p class="title is-6 has-text-success mb-2">Cultivo, Área y Clima</p>
+      <!-- BARRA SUPERIOR MULTIUSUARIO + INSTALACIÓN DE APP -->
+      <div class="box has-background-success-dark has-text-white mb-4">
+        <div class="columns is-vcentered">
+          <div class="column">
+            <h1 class="title is-4 has-text-white mb-1">🌾 AgroIA - Control de Campo Multiusuario</h1>
+            <p class="is-size-7 has-text-success-light">Seguimiento por Lote/Parcela • Gráficas • Historial Fotográfico • Sin API Key Obligatoria</p>
+          </div>
+          <div class="column is-narrow">
+            <div class="is-flex is-align-items-center mb-2" style="gap: 8px; flex-wrap: wrap;">
+              <span id="badge-usuario-activo" class="tag is-warning is-light is-medium">👤 Usuario</span>
+              <button type="button" class="button is-small is-danger is-light" onclick="cerrarSesion()">Salir</button>
+            </div>
+            <div class="is-flex is-justify-content-flex-end is-align-items-center" style="gap: 8px;">
+              <button type="button" id="btn-instalar-app" class="button is-small is-info" onclick="instalarApp()">📲 Descargar / Instalar App</button>
+              <span id="estado-red" class="tag is-small is-success">🌐 En línea</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- VISTA 1: PANEL PRINCIPAL -->
+      <div id="vista-principal" class="columns">
+        <!-- IZQUIERDA: FORMULARIO -->
+        <div class="column is-5">
+          <div class="box">
+            <h2 class="title is-5 has-text-success mb-3">📝 Registrar Seguimiento</h2>
+            <form id="form-registro">
               <div class="field">
-                <label class="label is-small">Identificador de Parcela / Lote</label>
-                <input id="id_cultivo" class="input is-small" type="text" value="PARCELA-MAIZ-01" required>
-              </div>
-              <div class="field">
-                <label class="label is-small">Producto Cultivado</label>
+                <label class="label is-small">Categoría</label>
                 <div class="select is-small is-fullwidth">
-                  <select id="prod_cultivo">
-                    <option value="maiz">Maíz</option>
-                    <option value="yuca">Yuca</option>
-                    <option value="ñame">Ñame</option>
-                    <option value="platano">Plátano</option>
+                  <select id="categoria" onchange="cambiarCategoria()">
+                    <option value="cultivo">🌱 Cultivo (Maíz, Yuca, Ñame, Plátano)</option>
+                    <option value="animal">🐄 Animal (Gallinas, Pollos, Cerdo, Vaca y Reses)</option>
                   </select>
                 </div>
               </div>
-              <div class="columns is-mobile is-variable is-1">
-                <div class="column">
-                  <label class="label is-small">Área</label>
-                  <input id="area" class="input is-small" type="number" step="any" value="2">
+
+              <!-- CULTIVOS -->
+              <div id="bloque-cultivo" class="box has-background-white-bis p-3">
+                <p class="title is-6 has-text-success mb-2">Cultivo, Área y Clima</p>
+                <div class="field">
+                  <label class="label is-small">Identificador de Parcela / Lote</label>
+                  <input id="id_cultivo" class="input is-small" type="text" value="PARCELA-MAIZ-01" required>
                 </div>
-                <div class="column is-5">
-                  <label class="label is-small">Medida</label>
+                <div class="field">
+                  <label class="label is-small">Producto Cultivado</label>
                   <div class="select is-small is-fullwidth">
-                    <select id="unidad_area">
-                      <option value="ha">Hectáreas (ha)</option>
-                      <option value="m2">Metros² (m²)</option>
+                    <select id="prod_cultivo">
+                      <option value="maiz">Maíz</option>
+                      <option value="yuca">Yuca</option>
+                      <option value="ñame">Ñame</option>
+                      <option value="platano">Plátano</option>
                     </select>
                   </div>
                 </div>
-              </div>
+                <div class="columns is-mobile is-variable is-1">
+                  <div class="column">
+                    <label class="label is-small">Área</label>
+                    <input id="area" class="input is-small" type="number" step="any" value="2">
+                  </div>
+                  <div class="column is-5">
+                    <label class="label is-small">Medida</label>
+                    <div class="select is-small is-fullwidth">
+                      <select id="unidad_area">
+                        <option value="ha">Hectáreas (ha)</option>
+                        <option value="m2">Metros² (m²)</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
 
-              <!-- CLIMA SOLO CULTIVOS -->
-              <div class="box has-background-white p-2 mt-2" style="border-left: 3px solid #00947e;">
-                <p class="is-size-7 has-text-weight-bold has-text-link mb-1">🌦️ Apartado de Clima (Cultivos)</p>
-                <div class="columns is-multiline is-mobile is-variable is-1">
-                  <div class="column is-6">
-                    <label class="label is-small">Temp (°C)</label>
-                    <input id="temp" class="input is-small" type="number" step="any" value="28">
-                  </div>
-                  <div class="column is-6">
-                    <label class="label is-small">Radiación (W/m²)</label>
-                    <input id="radiacion" class="input is-small" type="number" step="any" value="700">
-                  </div>
-                  <div class="column is-6">
-                    <label class="label is-small">Humedad (%)</label>
-                    <input id="humedad" class="input is-small" type="number" step="any" value="68">
-                  </div>
-                  <div class="column is-6">
-                    <label class="label is-small">Lluvia (mm)</label>
-                    <input id="lluvia_mm" class="input is-small" type="number" step="any" value="2">
+                <!-- CLIMA SOLO CULTIVOS -->
+                <div class="box has-background-white p-2 mt-2" style="border-left: 3px solid #00947e;">
+                  <p class="is-size-7 has-text-weight-bold has-text-link mb-1">🌦️ Apartado de Clima (Cultivos)</p>
+                  <div class="columns is-multiline is-mobile is-variable is-1">
+                    <div class="column is-6">
+                      <label class="label is-small">Temp (°C)</label>
+                      <input id="temp" class="input is-small" type="number" step="any" value="28">
+                    </div>
+                    <div class="column is-6">
+                      <label class="label is-small">Radiación (W/m²)</label>
+                      <input id="radiacion" class="input is-small" type="number" step="any" value="700">
+                    </div>
+                    <div class="column is-6">
+                      <label class="label is-small">Humedad (%)</label>
+                      <input id="humedad" class="input is-small" type="number" step="any" value="68">
+                    </div>
+                    <div class="column is-6">
+                      <label class="label is-small">Lluvia (mm)</label>
+                      <input id="lluvia_mm" class="input is-small" type="number" step="any" value="2">
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
 
-            <!-- ANIMALES -->
-            <div id="bloque-animal" class="box has-background-white-bis p-3" style="display:none;">
-              <p class="title is-6 has-text-warning-dark mb-2">Lotes Animales y Productos</p>
+              <!-- ANIMALES -->
+              <div id="bloque-animal" class="box has-background-white-bis p-3" style="display:none;">
+                <p class="title is-6 has-text-warning-dark mb-2">Lotes Animales y Productos</p>
+                <div class="field">
+                  <label class="label is-small">Identificador del Lote</label>
+                  <input id="id_animal" class="input is-small" type="text" value="LOTE-CERDOS-01" required>
+                </div>
+                <div class="columns is-mobile is-variable is-1">
+                  <div class="column">
+                    <label class="label is-small">Especie / Animal</label>
+                    <div class="select is-small is-fullwidth">
+                      <select id="prod_animal">
+                        <option value="gallinas">Gallinas</option>
+                        <option value="pollos">Pollos</option>
+                        <option value="cerdo">Cerdo</option>
+                        <option value="vaca">Vaca</option>
+                        <option value="reses">Reses</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="column">
+                    <label class="label is-small">Cantidad en Lote</label>
+                    <input id="cantidad" class="input is-small" type="number" step="1" value="20">
+                  </div>
+                </div>
+                <div class="field">
+                  <label class="label is-small">Producto que Ofrece / Va a Producir</label>
+                  <input id="proposito" class="input is-small" type="text" value="Carne / Engorde" placeholder="Carne, Leche, Huevos, Cría...">
+                </div>
+                <div class="columns is-mobile is-variable is-1">
+                  <div class="column">
+                    <label class="label is-small">Peso Promedio (kg)</label>
+                    <input id="peso" class="input is-small" type="number" step="any" value="95">
+                  </div>
+                  <div class="column">
+                    <label class="label is-small">Tamaño / Largo (cm)</label>
+                    <input id="largo" class="input is-small" type="number" step="any" value="112">
+                  </div>
+                </div>
+              </div>
+
               <div class="field">
-                <label class="label is-small">Identificador del Lote</label>
-                <input id="id_animal" class="input is-small" type="text" value="LOTE-CERDOS-01" required>
+                <label class="label is-small">✍️ Anotaciones / Observaciones del Personal</label>
+                <textarea id="nota_personal" class="textarea is-small" rows="2" placeholder="Observaciones de campo..."></textarea>
               </div>
-              <div class="columns is-mobile is-variable is-1">
-                <div class="column">
-                  <label class="label is-small">Especie / Animal</label>
-                  <div class="select is-small is-fullwidth">
-                    <select id="prod_animal">
-                      <option value="gallinas">Gallinas</option>
-                      <option value="pollos">Pollos</option>
-                      <option value="cerdo">Cerdo</option>
-                      <option value="vaca">Vaca</option>
-                      <option value="reses">Reses</option>
-                    </select>
-                  </div>
-                </div>
-                <div class="column">
-                  <label class="label is-small">Cantidad en Lote</label>
-                  <input id="cantidad" class="input is-small" type="number" step="1" value="20">
-                </div>
-              </div>
+
               <div class="field">
-                <label class="label is-small">Producto que Ofrece / Va a Producir</label>
-                <input id="proposito" class="input is-small" type="text" value="Carne / Engorde" placeholder="Carne, Leche, Huevos, Cría...">
+                <label class="label is-small">📸 Fotografía del Seguimiento (Opcional)</label>
+                <input id="foto" class="input is-small" type="file" accept="image/*" capture="environment">
               </div>
-              <div class="columns is-mobile is-variable is-1">
-                <div class="column">
-                  <label class="label is-small">Peso Promedio (kg)</label>
-                  <input id="peso" class="input is-small" type="number" step="any" value="95">
+
+              <div class="field">
+                <label class="label is-small">Gemini API Key (Opcional — no es necesaria para el análisis local)</label>
+                <input id="api_key" class="input is-small" type="password" placeholder="Opcional">
+              </div>
+
+              <button type="submit" class="button is-success is-fullwidth">🚀 Guardar y Ver Ficha del Lote</button>
+            </form>
+          </div>
+        </div>
+
+        <!-- DERECHA: LOTES Y PARCELAS -->
+        <div class="column is-7">
+          <div class="box" style="max-height: 850px; overflow-y: auto;">
+            <div class="level mb-3">
+              <div class="level-left">
+                <h2 class="title is-5 has-text-grey-dark mb-0">📋 Lotes y Parcelas Activos</h2>
+              </div>
+              <div class="level-right">
+                <div class="select is-small">
+                  <select id="filtro-usuario" onchange="renderHistorialLateral()">
+                    <option value="TODOS">Todos los usuarios</option>
+                  </select>
                 </div>
-                <div class="column">
-                  <label class="label is-small">Tamaño / Largo (cm)</label>
-                  <input id="largo" class="input is-small" type="number" step="any" value="112">
+              </div>
+            </div>
+            <p class="is-size-7 has-text-grey mb-3">Haz clic en cualquier tarjeta para abrir el expediente con <strong>fotos, gráfica, anotaciones y recomendaciones IA</strong>.</p>
+            <div id="historial-lateral"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- VISTA 2: EXPEDIENTE COMPLETO DEL LOTE / PARCELA -->
+      <div id="vista-detalle-lote" style="display:none;">
+        <div class="mb-3 is-flex is-justify-content-space-between is-align-items-center">
+          <button type="button" class="button is-small is-dark" onclick="cerrarDetalleLote()">⬅️ Volver al Panel Principal</button>
+          <span id="detalle-badge-tipo" class="tag is-medium is-success"></span>
+        </div>
+
+        <div class="box">
+          <h2 id="detalle-titulo" class="title is-3 mb-1"></h2>
+          <p id="detalle-subtitulo" class="subtitle is-6 has-text-grey mb-4"></p>
+
+          <!-- 1. RECOMENDACIÓN PRINCIPAL AL PRINCIPIO -->
+          <div class="priority-banner mb-5">
+            <p class="is-size-7 has-text-weight-bold has-text-warning-dark is-uppercase mb-1">⭐ Recomendación Principal (Acción Prioritaria)</p>
+            <p id="detalle-rec-principal" class="is-size-5 has-text-weight-bold has-text-dark"></p>
+          </div>
+
+          <div class="columns">
+            <!-- 2. GRÁFICA DE SEGUIMIENTO -->
+            <div class="column is-7">
+              <div class="box has-background-white-bis">
+                <h3 class="title is-6 mb-2">📈 Gráfica de Seguimiento y Evolución</h3>
+                <div id="contenedor-canvas" style="position: relative; min-height: 220px;">
+                  <canvas id="grafica-seguimiento"></canvas>
                 </div>
               </div>
             </div>
 
-            <!-- ANOTACIONES DEL PERSONAL -->
-            <div class="field">
-              <label class="label is-small">✍️ Anotaciones / Observaciones del Personal</label>
-              <textarea id="nota_personal" class="textarea is-small" rows="2" placeholder="Ej. Se observan hojas amarillas en el borde norte, o animales con buen apetito..."></textarea>
-            </div>
-
-            <div class="field">
-              <label class="label is-small">📸 Fotografía del Seguimiento (Opcional)</label>
-              <input id="foto" class="input is-small" type="file" accept="image/*">
-            </div>
-
-            <div class="field">
-              <label class="label is-small">Gemini API Key (Opcional)</label>
-              <input id="api_key" class="input is-small" type="password" placeholder="AIza...">
-            </div>
-
-            <button type="submit" class="button is-success is-fullwidth">🚀 Guardar y Ver Ficha del Lote</button>
-          </form>
-        </div>
-      </div>
-
-      <!-- DERECHA: LOTES Y PARCELAS CON ACCESO AL EXPEDIENTE -->
-      <div class="column is-7">
-        <div class="box" style="max-height: 850px; overflow-y: auto;">
-          <div class="level mb-3">
-            <div class="level-left">
-              <h2 class="title is-5 has-text-grey-dark mb-0">📋 Lotes y Parcelas Activos</h2>
-            </div>
-            <div class="level-right">
-              <div class="select is-small">
-                <select id="filtro-usuario" onchange="renderHistorialLateral()">
-                  <option value="TODOS">Todos los usuarios</option>
-                </select>
+            <!-- 3. RECOMENDACIONES DE LA IA Y RED NEURONAL -->
+            <div class="column is-5">
+              <div class="box has-background-white-bis" style="height:100%;">
+                <h3 class="title is-6 mb-2">🤖 Recomendaciones de la IA y Red Neuronal</h3>
+                <div id="detalle-ia-lista" class="content is-small"></div>
               </div>
             </div>
           </div>
-          <p class="is-size-7 has-text-grey mb-3">Haz clic en cualquier lote o parcela para abrir su historial fotográfico, gráfica de evolución, notas del personal y recomendaciones IA.</p>
-          <div id="historial-lateral"></div>
-        </div>
-      </div>
-    </div>
 
-    <!-- VISTA 2: EXPEDIENTE COMPLETO DEL LOTE / PARCELA (SE ABRE AL GUARDAR O AL HACER CLIC) -->
-    <div id="vista-detalle-lote" style="display:none;">
-      <div class="mb-3 is-flex is-justify-content-space-between is-align-items-center">
-        <button type="button" class="button is-small is-dark" onclick="cerrarDetalleLote()">⬅️ Volver al Panel Principal</button>
-        <span id="detalle-badge-tipo" class="tag is-medium is-success"></span>
-      </div>
-
-      <div class="box">
-        <h2 id="detalle-titulo" class="title is-3 mb-1"></h2>
-        <p id="detalle-subtitulo" class="subtitle is-6 has-text-grey mb-4"></p>
-
-        <!-- 1. RECOMENDACIÓN PRINCIPAL AL PRINCIPIO -->
-        <div class="priority-banner mb-5">
-          <p class="is-size-7 has-text-weight-bold has-text-warning-dark is-uppercase mb-1">⭐ Recomendación Principal (Acción Prioritaria)</p>
-          <p id="detalle-rec-principal" class="is-size-5 has-text-weight-bold has-text-dark"></p>
-        </div>
-
-        <div class="columns">
-          <!-- 2. GRÁFICA DE SEGUIMIENTO -->
-          <div class="column is-7">
-            <div class="box has-background-white-bis">
-              <h3 class="title is-6 mb-2">📈 Gráfica de Seguimiento y Evolución</h3>
-              <canvas id="grafica-seguimiento" height="150"></canvas>
-            </div>
+          <!-- 4. HISTORIAL FOTOGRÁFICO -->
+          <div class="box has-background-white-bis mb-4">
+            <h3 class="title is-6 mb-2">📸 Historial Fotográfico del Lote</h3>
+            <div id="detalle-galeria-fotos"></div>
           </div>
 
-          <!-- 3. RECOMENDACIONES DE LA IA Y RED NEURONAL -->
-          <div class="column is-5">
-            <div class="box has-background-white-bis" style="height:100%;">
-              <h3 class="title is-6 mb-2">🤖 Recomendaciones de la IA y Red Neuronal</h3>
-              <div id="detalle-ia-lista" class="content is-small"></div>
-            </div>
+          <!-- 5. ANOTACIONES DEL PERSONAL Y BITÁCORA -->
+          <div class="box has-background-white-bis">
+            <h3 class="title is-6 mb-3">📝 Anotaciones del Personal y Bitácora Cronológica</h3>
+            <div id="detalle-bitacora"></div>
           </div>
         </div>
-
-        <!-- 4. HISTORIAL FOTOGRÁFICO -->
-        <div class="box has-background-white-bis mb-4">
-          <h3 class="title is-6 mb-2">📸 Historial Fotográfico del Lote</h3>
-          <div id="detalle-galeria-fotos"></div>
-        </div>
-
-        <!-- 5. ANOTACIONES DEL PERSONAL Y LÍNEA DE TIEMPO -->
-        <div class="box has-background-white-bis">
-          <h3 class="title is-6 mb-3">📝 Anotaciones del Personal y Bitácora Cronológica</h3>
-          <div id="detalle-bitacora"></div>
-        </div>
       </div>
-    </div>
 
+    </div>
   </div>
   <script src="/app.js"></script>
 </body>

@@ -1,9 +1,12 @@
 import io
 import math
 import os
+import random
+import time
 import traceback
 from flask import Flask, jsonify, render_template, request
 from google import genai
+import numpy as np
 from PIL import Image
 import torch
 
@@ -11,9 +14,10 @@ from models.train_models import AnimalNN, CultivoNN, PRODUCTOS_ANIMAL, PRODUCTOS
 from backend.storage import (
     agregar_registro,
     cargar_historial,
-    cargar_usuarios,
     guardar_historial,
     registrar_usuario,
+    usuarios_publicos,
+    verificar_login,
 )
 
 app = Flask(
@@ -92,8 +96,6 @@ def evaluar_cultivo(payload):
         },
         "prediccion_nn": {
             "indice_riego": round(indice_riego, 2),
-            "valor_grafico": round(indice_riego * 100, 1),
-            "etiqueta_grafico": "Demanda Hídrica (%)",
             "resumen": f"Demanda hídrica: {indice_riego*100:.0f}% para {producto} ({area_ha:.2f} ha / {area_m2:.0f} m²).",
         },
         "recomendacion_principal": rec_principal,
@@ -133,12 +135,61 @@ def evaluar_animal(payload):
         "largo_cm": largo,
         "prediccion_nn": {
             "indice_desarrollo": round(indice_desarrollo, 2),
-            "valor_grafico": peso,
-            "etiqueta_grafico": "Peso Promedio (kg)",
             "resumen": f"{etapa} ({producto}, lote de {cantidad} und., {peso} kg, {largo} cm).",
         },
         "recomendacion_principal": rec_principal,
     }
+
+
+def analizar_imagen_sin_api_key(foto_bytes, base_info):
+    img = Image.open(io.BytesIO(foto_bytes)).convert("RGB").resize((128, 128))
+    arr = np.asarray(img, dtype=np.float32) / 255.0
+
+    r_mean = float(arr[:, :, 0].mean())
+    g_mean = float(arr[:, :, 1].mean())
+    b_mean = float(arr[:, :, 2].mean())
+    brillo = float(arr.mean())
+    indice_verdor = g_mean - ((r_mean + b_mean) / 2.0)
+
+    if brillo < 0.22:
+        luz_txt = "Iluminación baja o imagen oscura; se sugiere tomar foto con mayor luz natural."
+    elif brillo > 0.82:
+        luz_txt = "Iluminación elevada; evitar reflejos directos sobre hojas o pelaje."
+    else:
+        luz_txt = "Iluminación adecuada para revisión visual."
+
+    if base_info.get("categoria") == "cultivo":
+        if indice_verdor > 0.04:
+            estado_txt = "Predominio de tonos verdes en el encuadre; revisar uniformidad del follaje y bordes."
+        else:
+            estado_txt = "Menor presencia de verde intenso (posible suelo expuesto o variación foliar); revisar vigor y humedad."
+        accion_txt = f"Contrastes visuales en {base_info.get('producto')} ({base_info.get('identificador')}) junto con el riego sugerido."
+    else:
+        estado_txt = f"Captura registrada para lote de {base_info.get('cantidad')} {base_info.get('producto')}."
+        accion_txt = f"Comparar condición corporal y limpieza del lote ({base_info.get('peso_kg')} kg prom.) frente a seguimientos previos."
+
+    return (
+        f"- ACCIÓN PRIORITARIA: {accion_txt}\n"
+        f"- ESTADO VISUAL Y CRECIMIENTO: {estado_txt} {luz_txt}\n"
+        f"- RECOMENDACIÓN COMPLEMENTARIA: Tomar fotos en ángulos similares para comparar evolución."
+    )
+
+
+def _generar_con_reintentos(client, contents, modelos=None, max_reintentos=2):
+    modelos = modelos or ["gemini-2.5-flash", "gemini-3.5-flash-lite"]
+    ultimo_error = None
+    for modelo in modelos:
+        for intento in range(max_reintentos):
+            try:
+                return client.models.generate_content(model=modelo, contents=contents)
+            except Exception as e:
+                ultimo_error = e
+                msg = str(e)
+                if "503" not in msg and "UNAVAILABLE" not in msg and "high demand" not in msg.lower():
+                    raise
+                if intento < max_reintentos - 1:
+                    time.sleep((2 ** intento) + random.uniform(0.2, 0.6))
+    raise ultimo_error
 
 
 def estructurar_ia(base_info, historial_previo, nota_personal="", foto_bytes=None, api_key=None):
@@ -168,20 +219,26 @@ def estructurar_ia(base_info, historial_previo, nota_personal="", foto_bytes=Non
         "alertas": alertas,
     }
 
-    if foto_bytes and api_key:
-        try:
-            img = Image.open(io.BytesIO(foto_bytes))
-            client = genai.Client(api_key=api_key)
-            prompt = (
-                f"Analiza esta fotografía del lote/parcela '{base_info['identificador']}' ({base_info['producto']}). "
-                f"Nota del personal: '{nota_personal}'. Datos técnicos: {base_info}. "
-                f"Responde de forma muy clara y estructurada en 3 puntos:\n"
-                f"1. ACCIÓN PRIORITARIA:\n2. ESTADO VISUAL Y CRECIMIENTO:\n3. RECOMENDACIÓN COMPLEMENTARIA:"
-            )
-            resp = client.models.generate_content(model="gemini-2.5-flash", contents=[img, prompt])
-            estructura["analisis_visual_ia"] = resp.text
-        except Exception as e:
-            estructura["alertas"].append(f"Análisis visual IA no disponible: {e}")
+    if foto_bytes:
+        usó_gemini = False
+        if api_key:
+            try:
+                img = Image.open(io.BytesIO(foto_bytes))
+                client = genai.Client(api_key=api_key)
+                prompt = (
+                    f"Analiza esta fotografía del lote/parcela '{base_info['identificador']}' ({base_info['producto']}). "
+                    f"Nota del personal: '{nota_personal}'. Datos técnicos: {base_info}. "
+                    f"Responde de forma clara en 3 puntos:\n"
+                    f"1. ACCIÓN PRIORITARIA:\n2. ESTADO VISUAL Y CRECIMIENTO:\n3. RECOMENDACIÓN COMPLEMENTARIA:"
+                )
+                resp = _generar_con_reintentos(client, [img, prompt])
+                estructura["analisis_visual_ia"] = resp.text
+                usó_gemini = True
+            except Exception:
+                usó_gemini = False
+
+        if not usó_gemini:
+            estructura["analisis_visual_ia"] = analizar_imagen_sin_api_key(foto_bytes, base_info)
 
     return estructura
 
@@ -191,17 +248,29 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/api/login", methods=["POST"])
+def api_login():
+    data = request.get_json(force=True) or {}
+    usuario = verificar_login(data.get("nombre", ""), data.get("password", ""))
+    if not usuario:
+        return jsonify({"ok": False, "error": "Usuario o contraseña incorrectos."}), 401
+    return jsonify({"ok": True, "usuario": usuario})
+
+
 @app.route("/api/usuarios", methods=["GET", "POST"])
 def api_usuarios():
     if request.method == "POST":
-        data = request.get_json(force=True) or {}
-        nombre = data.get("nombre", "").strip()
-        rol = data.get("rol", "Operario").strip()
-        if not nombre:
-            return jsonify({"ok": False, "error": "Nombre requerido"}), 400
-        usuarios, nuevo = registrar_usuario(nombre, rol)
-        return jsonify({"ok": True, "usuarios": usuarios, "usuario": nuevo})
-    return jsonify({"ok": True, "usuarios": cargar_usuarios()})
+        try:
+            data = request.get_json(force=True) or {}
+            usuarios, nuevo = registrar_usuario(
+                data.get("nombre", ""),
+                data.get("rol", "Operario"),
+                data.get("password", ""),
+            )
+            return jsonify({"ok": True, "usuarios": usuarios, "usuario": nuevo})
+        except ValueError as ve:
+            return jsonify({"ok": False, "error": str(ve)}), 400
+    return jsonify({"ok": True, "usuarios": usuarios_publicos()})
 
 
 @app.route("/api/analizar", methods=["POST"])
@@ -228,7 +297,7 @@ def analizar():
             "proposito": form.get("proposito", "producción"),
             "foto_base64": form.get("foto_base64"),
         }
-        api_key = form.get("api_key") or os.environ.get("GOOGLE_API_KEY")
+        api_key = (form.get("api_key") or os.environ.get("GOOGLE_API_KEY") or "").strip()
         foto_bytes = request.files["foto"].read() if ("foto" in request.files and request.files["foto"].filename) else None
 
         historial_actual = cargar_historial()
@@ -237,7 +306,7 @@ def analizar():
 
         base = evaluar_animal(payload) if payload["categoria"] == "animal" else evaluar_cultivo(payload)
         ia_estructurada = estructurar_ia(
-            base, previos_id, nota_personal=nota_personal, foto_bytes=foto_bytes, api_key=api_key
+            base, previos_id, nota_personal=nota_personal, foto_bytes=foto_bytes, api_key=api_key or None
         )
 
         registro = {

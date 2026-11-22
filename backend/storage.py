@@ -1,6 +1,7 @@
 import json
 import os
 from datetime import datetime
+from werkzeug.security import check_password_hash, generate_password_hash
 
 DATA_DIR = "data"
 DB_FILE = os.path.join(DATA_DIR, "historial.json")
@@ -23,20 +24,73 @@ def _guardar_json(ruta, datos):
 
 def cargar_usuarios():
     default_users = [
-        {"id": "admin", "nombre": "Administrador General", "rol": "Administrador"},
-        {"id": "tecnico1", "nombre": "Técnico Agropecuario", "rol": "Técnico"},
-        {"id": "operario1", "nombre": "Operario de Campo", "rol": "Operario"},
+        {
+            "id": "admin",
+            "nombre": "Administrador General",
+            "rol": "Administrador",
+            "password_hash": generate_password_hash("admin123"),
+        },
+        {
+            "id": "tecnico1",
+            "nombre": "Técnico Agropecuario",
+            "rol": "Técnico",
+            "password_hash": generate_password_hash("tecnico123"),
+        },
+        {
+            "id": "operario1",
+            "nombre": "Operario de Campo",
+            "rol": "Operario",
+            "password_hash": generate_password_hash("campo123"),
+        },
     ]
+    if not os.path.exists(USERS_FILE):
+        _guardar_json(USERS_FILE, default_users)
+        return default_users
     return _leer_json(USERS_FILE, default_users)
 
 
-def registrar_usuario(nombre, rol):
+def usuarios_publicos():
+    return [
+        {"id": u["id"], "nombre": u["nombre"], "rol": u["rol"]}
+        for u in cargar_usuarios()
+    ]
+
+
+def verificar_login(nombre, password):
+    nombre_limpio = (nombre or "").strip().lower()
+    for u in cargar_usuarios():
+        if u["nombre"].strip().lower() == nombre_limpio and check_password_hash(
+            u.get("password_hash", ""), password or ""
+        ):
+            return {"id": u["id"], "nombre": u["nombre"], "rol": u["rol"]}
+    return None
+
+
+def registrar_usuario(nombre, rol, password):
+    nombre_limpio = (nombre or "").strip()
+    rol_limpio = (rol or "Operario").strip()
+    if not nombre_limpio or not password or len(password) < 4:
+        raise ValueError("Debes ingresar un nombre y una contraseña de al menos 4 caracteres.")
+
     usuarios = cargar_usuarios()
-    uid = f"user_{len(usuarios)+1}_{nombre.lower().replace(' ', '_')}"
-    nuevo = {"id": uid, "nombre": nombre.strip(), "rol": rol.strip()}
+    if any(u["nombre"].strip().lower() == nombre_limpio.lower() for u in usuarios):
+        raise ValueError("Ya existe un usuario con ese nombre.")
+
+    uid = f"user_{len(usuarios)+1}_{nombre_limpio.lower().replace(' ', '_')}"
+    nuevo_hash = generate_password_hash(password)
+    nuevo = {
+        "id": uid,
+        "nombre": nombre_limpio,
+        "rol": rol_limpio,
+        "password_hash": nuevo_hash,
+    }
     usuarios.append(nuevo)
     _guardar_json(USERS_FILE, usuarios)
-    return usuarios, nuevo
+    return usuarios_publicos(), {
+        "id": nuevo["id"],
+        "nombre": nuevo["nombre"],
+        "rol": nuevo["rol"],
+    }
 
 
 def cargar_historial():

@@ -1,23 +1,251 @@
-const STORAGE_KEY = "agro_ia_historial_v1";
-const PENDING_KEY = "agro_ia_pendientes_v1";
+const STORAGE_KEY = "agro_ia_historial_v5";
+const PENDING_KEY = "agro_ia_pendientes_v5";
+const USERS_KEY = "agro_ia_usuarios_v5";
+const SESSION_KEY = "agro_ia_sesion_v5";
 
 let chartInstance = null;
-let identificadorActivo = null;
+let deferredInstallPrompt = null;
 
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("/sw.js").catch(() => {});
 }
 
-const getHistorialLocal = () => JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
-const setHistorialLocal = (items) => localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-const getPendientes = () => JSON.parse(localStorage.getItem(PENDING_KEY) || "[]");
-const setPendientes = (items) => localStorage.setItem(PENDING_KEY, JSON.stringify(items));
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  const btn = document.getElementById("btn-instalar-app");
+  if (btn) btn.style.display = "inline-flex";
+});
+
+async function instalarApp() {
+  if (deferredInstallPrompt) {
+    deferredInstallPrompt.prompt();
+    await deferredInstallPrompt.userChoice;
+    deferredInstallPrompt = null;
+  } else {
+    alert(
+      "Para instalar la App:\n" +
+      "• En Celular (Android/Chrome): Menú (⋮) -> 'Instalar aplicación' o 'Agregar a pantalla de inicio'.\n" +
+      "• En iPhone (Safari): Botón Compartir -> 'Agregar a inicio'.\n" +
+      "• En Computador (Chrome/Edge): Haz clic en el ícono de instalar (+) en la barra de direcciones."
+    );
+  }
+}
+
+function getHistorialLocal() {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+  } catch (_) {
+    return [];
+  }
+}
+
+function setHistorialLocal(items) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+  } catch (e) {
+    const optimizado = items.map((r, idx) => (idx < 10 ? r : { ...r, foto_base64: null }));
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(optimizado));
+    } catch (_) {
+      const sinFotos = items.map((r) => ({ ...r, foto_base64: null }));
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(sinFotos));
+      } catch (__) {}
+    }
+  }
+}
+
+function getPendientes() {
+  try {
+    return JSON.parse(localStorage.getItem(PENDING_KEY) || "[]");
+  } catch (_) {
+    return [];
+  }
+}
+
+function setPendientes(items) {
+  try {
+    localStorage.setItem(PENDING_KEY, JSON.stringify(items));
+  } catch (_) {}
+}
+
+function getUsuariosCache() {
+  return JSON.parse(localStorage.getItem(USERS_KEY) || "[]");
+}
+
+function setUsuariosCache(users) {
+  localStorage.setItem(USERS_KEY, JSON.stringify(users));
+}
+
+function getSesionActiva() {
+  try {
+    return JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
+  } catch (_) {
+    return null;
+  }
+}
+
+function setSesionActiva(user) {
+  if (user) {
+    localStorage.setItem(SESSION_KEY, JSON.stringify(user));
+  } else {
+    localStorage.removeItem(SESSION_KEY);
+  }
+}
+
+function aplicarEstadoAutenticacion() {
+  const sesion = getSesionActiva();
+  const vistaLogin = document.getElementById("vista-login");
+  const appAuth = document.getElementById("app-autenticada");
+
+  if (sesion && sesion.nombre) {
+    vistaLogin.style.display = "none";
+    appAuth.style.display = "block";
+    document.getElementById("badge-usuario-activo").textContent = `👤 ${sesion.nombre} (${sesion.rol})`;
+    renderFiltroUsuarios();
+    renderHistorialLateral();
+  } else {
+    vistaLogin.style.display = "block";
+    appAuth.style.display = "none";
+  }
+}
+
+function toggleRegistroLogin() {
+  const box = document.getElementById("box-registro-login");
+  box.style.display = box.style.display === "none" ? "block" : "none";
+}
+
+function mostrarErrorLogin(msg) {
+  const el = document.getElementById("login-error");
+  el.textContent = msg;
+  el.style.display = "block";
+}
+
+async function crearUsuarioConClave() {
+  const nombre = document.getElementById("reg-nombre").value.trim();
+  const rol = document.getElementById("reg-rol").value;
+  const password = document.getElementById("reg-password").value;
+
+  if (!nombre || password.length < 4) {
+    mostrarErrorLogin("Ingresa nombre y una contraseña de al menos 4 caracteres.");
+    return;
+  }
+
+  if (navigator.onLine) {
+    try {
+      const res = await fetch("/api/usuarios", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nombre, rol, password }),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        mostrarErrorLogin(data.error || "No se pudo crear el usuario.");
+        return;
+      }
+      setUsuariosCache(data.usuarios);
+      setSesionActiva({ id: data.usuario.id, nombre: data.usuario.nombre, rol: data.usuario.rol });
+      document.getElementById("login-error").style.display = "none";
+      aplicarEstadoAutenticacion();
+      return;
+    } catch (_) {}
+  }
+
+  const users = getUsuariosCache();
+  if (users.some((u) => u.nombre.toLowerCase() === nombre.toLowerCase())) {
+    mostrarErrorLogin("Ese usuario ya existe.");
+    return;
+  }
+  const nuevo = { id: `user_${Date.now()}`, nombre, rol, password };
+  users.push(nuevo);
+  setUsuariosCache(users);
+  setSesionActiva({ id: nuevo.id, nombre: nuevo.nombre, rol: nuevo.rol });
+  document.getElementById("login-error").style.display = "none";
+  aplicarEstadoAutenticacion();
+}
+
+document.getElementById("form-login").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const nombre = document.getElementById("login-nombre").value.trim();
+  const password = document.getElementById("login-password").value;
+
+  if (navigator.onLine) {
+    try {
+      const res = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nombre, password }),
+      });
+      const data = await res.json();
+      if (data.ok && data.usuario) {
+        const users = getUsuariosCache();
+        const idx = users.findIndex((u) => u.nombre.toLowerCase() === data.usuario.nombre.toLowerCase());
+        const entry = { ...data.usuario, password };
+        if (idx >= 0) users[idx] = entry;
+        else users.push(entry);
+        setUsuariosCache(users);
+
+        setSesionActiva(data.usuario);
+        document.getElementById("login-error").style.display = "none";
+        document.getElementById("login-password").value = "";
+        aplicarEstadoAutenticacion();
+        return;
+      } else {
+        mostrarErrorLogin(data.error || "Usuario o contraseña incorrectos.");
+        return;
+      }
+    } catch (_) {}
+  }
+
+  const credencialesIniciales = [
+    { id: "admin", nombre: "Administrador General", rol: "Administrador", password: "admin123" },
+    { id: "tecnico1", nombre: "Técnico Agropecuario", rol: "Técnico", password: "tecnico123" },
+    { id: "operario1", nombre: "Operario de Campo", rol: "Operario", password: "campo123" },
+  ];
+  const todos = [...getUsuariosCache(), ...credencialesIniciales];
+  const match = todos.find(
+    (u) => u.nombre.trim().toLowerCase() === nombre.toLowerCase() && u.password === password
+  );
+
+  if (match) {
+    setSesionActiva({ id: match.id, nombre: match.nombre, rol: match.rol });
+    document.getElementById("login-error").style.display = "none";
+    document.getElementById("login-password").value = "";
+    aplicarEstadoAutenticacion();
+  } else {
+    mostrarErrorLogin("Usuario o contraseña incorrectos.");
+  }
+});
+
+function cerrarSesion() {
+  setSesionActiva(null);
+  aplicarEstadoAutenticacion();
+}
+
+function renderFiltroUsuarios() {
+  const filtro = document.getElementById("filtro-usuario");
+  const users = getUsuariosCache();
+  const prev = filtro.value || "TODOS";
+  filtro.innerHTML =
+    `<option value="TODOS">Todos los usuarios</option>` +
+    users.map((u) => `<option value="${u.nombre}">${u.nombre} (${u.rol})</option>`).join("");
+  filtro.value = prev;
+}
 
 function actualizarEstadoRed() {
-  const badge = document.getElementById("estado-red");
   const online = navigator.onLine;
-  badge.textContent = online ? "🌐 En línea" : "📴 Sin internet (Offline)";
-  badge.className = `tag is-medium ${online ? "is-success" : "is-warning"}`;
+  const badge = document.getElementById("estado-red");
+  const badgeLogin = document.getElementById("estado-red-login");
+
+  if (badge) {
+    badge.textContent = online ? "🌐 En línea" : "📴 Sin internet (Offline)";
+    badge.className = `tag is-small ${online ? "is-success" : "is-warning"}`;
+  }
+  if (badgeLogin) {
+    badgeLogin.textContent = online ? "🌐 En línea" : "📴 Sin internet (Offline)";
+    badgeLogin.className = `tag is-small mt-2 ${online ? "is-success" : "is-warning"}`;
+  }
   if (online) sincronizarPendientes();
 }
 
@@ -27,18 +255,50 @@ function cambiarCategoria() {
   document.getElementById("bloque-animal").style.display = cat === "animal" ? "block" : "none";
 }
 
-function leerImagenBase64(file) {
+function comprimirImagenBase64(file, maxWidth = 720, quality = 0.72) {
   return new Promise((resolve) => {
     if (!file) return resolve(null);
     const reader = new FileReader();
-    reader.onload = () => resolve(reader.result.split(",")[1]);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        let width = img.width;
+        let height = img.height;
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, width, height);
+        const dataUrl = canvas.toDataURL("image/jpeg", quality);
+        resolve(dataUrl.split(",")[1]);
+      };
+      img.onerror = () => resolve(event.target.result.split(",")[1]);
+      img.src = event.target.result;
+    };
+    reader.onerror = () => resolve(null);
     reader.readAsDataURL(file);
   });
 }
 
+function analizarFotoOfflineLocal(fotoBase64, esCultivo, producto, idNorm, cantidad, peso) {
+  if (!fotoBase64) return null;
+  const estado = esCultivo
+    ? `Foto capturada de ${producto} en ${idNorm}; revisar follaje, coloración y humedad del suelo.`
+    : `Foto capturada de ${cantidad} ${producto} en ${idNorm}; comparar condición corporal y peso (${peso} kg).`;
+  return (
+    `- ACCIÓN PRIORITARIA: Validar estado visual en campo para ${idNorm}.\n` +
+    `- ESTADO VISUAL Y CRECIMIENTO: ${estado}\n` +
+    `- RECOMENDACIÓN COMPLEMENTARIA: Conservar registro fotográfico periódico para comparar avance.`
+  );
+}
+
 function inferenciaOffline(payload) {
   const ahora = new Date().toISOString().slice(0, 16).replace("T", " ");
-  const anotacion = (payload.anotacion_personal || "").trim();
+  const idNorm = (payload.identificador || "LOTE-01").trim().toUpperCase();
 
   if (payload.categoria === "cultivo") {
     const areaVal = parseFloat(payload.area || 1);
@@ -49,33 +309,41 @@ function inferenciaOffline(payload) {
     const hum = parseFloat(payload.humedad || 70);
     const lluvia = parseFloat(payload.lluvia_mm || 0);
     const indice = Math.min(1, Math.max(0, (temp / 40) * 0.4 + (rad / 1100) * 0.35 + (1 - hum / 100) * 0.25));
+
     const alertas = [];
     if (temp > 34) alertas.push("Temperatura alta (>34°C): vigilar estrés hídrico.");
-    if (lluvia >= 15) alertas.push("Lluvia registrada: reducir riego artificial.");
+    if (lluvia >= 15) alertas.push("Lluvia significativa: suspender o reducir riego.");
 
-    const recs = [`Ajustar riego al ${(indice * 100).toFixed(0)}% en ${ha.toFixed(2)} ha (${m2.toFixed(0)} m²).`];
-    if (anotacion) recs.push(`Anotación registrada: "${anotacion}".`);
+    const recPrincipal =
+      lluvia >= 15
+        ? `SUSPENDER RIEGO hoy en ${idNorm} (${payload.producto}) por lluvia de ${lluvia} mm.`
+        : `APLICAR RIEGO AL ${(indice * 100).toFixed(0)}% en las ${ha.toFixed(2)} ha (${m2.toFixed(0)} m²) de ${payload.producto}.`;
+
+    const analisisVisual = analizarFotoOfflineLocal(payload.foto_base64, true, payload.producto, idNorm);
 
     return {
       local_id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       fecha: ahora,
       categoria: "cultivo",
-      identificador: payload.identificador || "PARCELA-01",
+      identificador: idNorm,
       producto: payload.producto || "maiz",
       area_ha: Number(ha.toFixed(4)),
       area_m2: Number(m2.toFixed(1)),
       clima: { temp, radiacion: rad, humedad: hum, lluvia_mm: lluvia, alertas },
-      anotacion_personal: anotacion,
+      usuario: { nombre: payload.usuario_nombre, rol: payload.usuario_rol },
+      nota_personal: payload.nota_personal || "",
+      recomendacion_principal: recPrincipal,
       prediccion_nn: {
         indice_riego: Number(indice.toFixed(2)),
         resumen: `Demanda hídrica: ${(indice * 100).toFixed(0)}% en ${ha.toFixed(2)} ha (${m2.toFixed(0)} m²).`,
       },
       ia: {
-        recomendacion_principal: `Aplicar riego al ${(indice * 100).toFixed(0)}% en ${payload.identificador || "PARCELA-01"} (${payload.producto || "maiz"}).`,
-        diagnostico: `Evaluación offline de ${payload.producto} (${payload.identificador}).`,
-        contexto_historial: "Guardado localmente sin internet.",
-        recomendaciones: recs,
+        recomendacion_principal: recPrincipal,
+        diagnostico: `Evaluación local de ${payload.producto} (${idNorm}).`,
+        contexto_historial: "Guardado sin internet (se sincronizará automáticamente).",
+        recomendaciones: [`Revisar humedad del suelo y vigor foliar en ${payload.producto}.`],
         alertas,
+        analisis_visual_ia: analisisVisual,
       },
       foto_base64: payload.foto_base64 || null,
     };
@@ -84,240 +352,242 @@ function inferenciaOffline(payload) {
     const peso = parseFloat(payload.peso || 0);
     const largo = parseFloat(payload.largo || 0);
     const score = Math.min(1, Math.max(0, (peso / 300) * 0.55 + (largo / 180) * 0.45));
-    const recs = [`Controlar peso (${peso} kg) y largo (${largo} cm) en lote de ${cant} ${payload.producto}.`];
-    if (anotacion) recs.push(`Anotación registrada: "${anotacion}".`);
+
+    const recPrincipal =
+      score >= 0.55
+        ? `LOTE LISTO (${idNorm}): Programar salida comercial o etapa de ${payload.proposito} para ${cant} ${payload.producto} (${peso} kg).`
+        : `CONTINUAR DESARROLLO en ${idNorm}: Mantener ración balanceada y control sanitario para ${cant} ${payload.producto} (${peso} kg / ${largo} cm).`;
+
+    const analisisVisual = analizarFotoOfflineLocal(
+      payload.foto_base64,
+      false,
+      payload.producto,
+      idNorm,
+      cant,
+      peso
+    );
 
     return {
       local_id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       fecha: ahora,
       categoria: "animal",
-      identificador: payload.identificador || "LOTE-01",
+      identificador: idNorm,
       producto: payload.producto || "cerdo",
       proposito: payload.proposito || "producción",
       cantidad: cant,
       peso_kg: peso,
       largo_cm: largo,
-      anotacion_personal: anotacion,
+      usuario: { nombre: payload.usuario_nombre, rol: payload.usuario_rol },
+      nota_personal: payload.nota_personal || "",
+      recomendacion_principal: recPrincipal,
       prediccion_nn: {
         indice_desarrollo: Number(score.toFixed(2)),
         resumen: `Lote de ${cant} ${payload.producto} | Peso: ${peso} kg | Largo: ${largo} cm.`,
       },
       ia: {
-        recomendacion_principal: `Monitorear crecimiento (${peso} kg / ${largo} cm) del lote ${payload.identificador || "LOTE-01"} orientado a ${payload.proposito || "producción"}.`,
-        diagnostico: `Seguimiento offline de lote ${payload.identificador} (${payload.producto}).`,
-        contexto_historial: "Guardado localmente sin internet.",
-        recomendaciones: recs,
+        recomendacion_principal: recPrincipal,
+        diagnostico: `Seguimiento local de lote ${idNorm} (${payload.producto}).`,
+        contexto_historial: "Guardado sin internet (se sincronizará automáticamente).",
+        recomendaciones: [`Controlar ganancia de peso y tamaño hacia objetivo: ${payload.proposito}.`],
         alertas: [],
+        analisis_visual_ia: analisisVisual,
       },
       foto_base64: payload.foto_base64 || null,
     };
   }
 }
 
-function renderResultado(reg) {
-  const box = document.getElementById("resultado-actual");
-  const recPrincipal = reg.ia?.recomendacion_principal || reg.prediccion_nn?.resumen || "";
-  box.style.display = "block";
-  box.innerHTML = `
-    <div class="notification is-success is-light p-3">
-      <p class="is-size-7 mb-1"><strong>⭐ Recomendación Principal:</strong> ${recPrincipal}</p>
-      <p class="is-size-7 mb-2"><strong>Identificador:</strong> ${reg.identificador}</p>
-      <button type="button" class="button is-small is-success" onclick="abrirDetalleLote('${reg.identificador.replace(/'/g, "\\'")}')">
-        🔍 Abrir Seguimiento del Lote
-      </button>
-    </div>
-  `;
-}
-
-function cerrarDetalleLote() {
-  identificadorActivo = null;
-  document.getElementById("detalle-lote-panel").style.display = "none";
-}
-
 function abrirDetalleLote(identificador) {
-  identificadorActivo = identificador;
-  const todos = getHistorialLocal().filter((r) => (r.identificador || "SIN-ID") === identificador);
-  const panel = document.getElementById("detalle-lote-panel");
+  const idBuscado = (identificador || "").trim().toUpperCase();
+  const historial = getHistorialLocal().filter(
+    (r) => (r.identificador || "").trim().toUpperCase() === idBuscado
+  );
+  if (!historial.length) return;
 
-  if (!todos.length) {
-    panel.style.display = "none";
+  const masReciente = historial[0];
+  const cronologico = [...historial].reverse();
+
+  document.getElementById("vista-principal").style.display = "none";
+  document.getElementById("vista-detalle-lote").style.display = "block";
+  window.scrollTo({ top: 0, behavior: "smooth" });
+
+  const badge = document.getElementById("detalle-badge-tipo");
+  badge.textContent = masReciente.categoria === "cultivo" ? "🌱 CULTIVO / PARCELA" : "🐄 LOTE ANIMAL";
+  badge.className = `tag is-medium ${masReciente.categoria === "cultivo" ? "is-success" : "is-warning"}`;
+
+  document.getElementById("detalle-titulo").textContent = `${masReciente.identificador} — ${masReciente.producto.toUpperCase()}`;
+  document.getElementById("detalle-subtitulo").textContent =
+    masReciente.categoria === "cultivo"
+      ? `Área cultivada: ${masReciente.area_ha} ha (${masReciente.area_m2} m²) • Total seguimientos: ${historial.length}`
+      : `Cantidad en lote: ${masReciente.cantidad} animales • Producto objetivo: ${masReciente.proposito} • Total seguimientos: ${historial.length}`;
+
+  const recPrincipal =
+    masReciente.recomendacion_principal ||
+    masReciente.ia?.recomendacion_principal ||
+    masReciente.prediccion_nn?.resumen ||
+    "Continuar monitoreo periódico del lote.";
+  document.getElementById("detalle-rec-principal").textContent = recPrincipal;
+
+  const recs = masReciente.ia?.recomendaciones || [];
+  const alertas = masReciente.ia?.alertas || [];
+  const visualIa = masReciente.ia?.analisis_visual_ia || "";
+
+  document.getElementById("detalle-ia-lista").innerHTML = `
+    <p><strong>Diagnóstico Red Neuronal:</strong> ${masReciente.prediccion_nn?.resumen || ""}</p>
+    <ul>
+      ${recs.map((r) => `<li>✅ ${r}</li>`).join("")}
+      ${alertas.map((a) => `<li class="has-text-danger">⚠️ ${a}</li>`).join("")}
+    </ul>
+    ${visualIa ? `<div class="notification is-info is-light p-2 mt-2" style="white-space:pre-line;"><strong>Análisis Visual:</strong>\n${visualIa}</div>` : ""}
+  `;
+
+  const conFotos = historial.filter((r) => r.foto_base64);
+  const galeriaEl = document.getElementById("detalle-galeria-fotos");
+  if (!conFotos.length) {
+    galeriaEl.innerHTML = `<p class="is-size-7 has-text-grey">Este lote aún no tiene fotografías registradas.</p>`;
+  } else {
+    galeriaEl.innerHTML = `<div class="photo-grid">${conFotos
+      .map(
+        (r) => `
+        <div class="box p-2 photo-card has-background-white">
+          <img src="data:image/jpeg;base64,${r.foto_base64}" alt="Foto ${r.fecha}">
+          <p class="is-size-7 has-text-weight-bold mt-1">🕒 ${r.fecha}</p>
+          <p class="is-size-7 has-text-grey">👤 ${r.usuario?.nombre || "Personal"}</p>
+          ${r.nota_personal ? `<p class="is-size-7 mt-1">"${r.nota_personal}"</p>` : ""}
+        </div>`
+      )
+      .join("")}</div>`;
+  }
+
+  document.getElementById("detalle-bitacora").innerHTML = historial
+    .map(
+      (r) => `
+      <div class="box p-3 mb-2 has-background-white">
+        <div class="is-flex is-justify-content-space-between is-size-7 has-text-grey mb-1">
+          <span>🕒 <strong>${r.fecha}</strong></span>
+          <span>👤 Registrado por: <strong>${r.usuario?.nombre || "Usuario"}</strong> (${r.usuario?.rol || "Campo"})</span>
+        </div>
+        <p class="is-size-7 mb-1"><strong>Métricas:</strong> ${r.prediccion_nn?.resumen || ""}</p>
+        ${
+          r.nota_personal
+            ? `<div class="notification is-warning is-light p-2 mt-1 mb-1 is-size-7"><strong>✍️ Anotación del personal:</strong> ${r.nota_personal}</div>`
+            : `<p class="is-size-7 has-text-grey-light">Sin anotaciones manuales en este registro.</p>`
+        }
+      </div>`
+    )
+    .join("");
+
+  const contenedorCanvas = document.getElementById("contenedor-canvas");
+  if (typeof Chart === "undefined") {
+    contenedorCanvas.innerHTML = `<p class="is-size-7 has-text-grey">Conéctate a internet una vez para almacenar en caché el motor de gráficas.</p>`;
     return;
   }
 
-  // Orden cronológico ascendente para la gráfica y evolución
-  const cronologico = [...todos].reverse();
-  const ultimo = todos[0];
-
-  panel.style.display = "block";
-  panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
-
-  document.getElementById("detalle-titulo").textContent = `📌 Seguimiento: ${identificador}`;
-  document.getElementById("detalle-subtitulo").textContent =
-    ultimo.categoria === "cultivo"
-      ? `Cultivo: ${ultimo.producto.toUpperCase()} | Área: ${ultimo.area_ha} ha (${ultimo.area_m2} m²) | Registros: ${todos.length}`
-      : `Animal: ${ultimo.producto.toUpperCase()} | Cantidad: ${ultimo.cantidad} und. | Producto: ${ultimo.proposito || ""} | Registros: ${todos.length}`;
-
-  // 1. RECOMENDACIÓN PRINCIPAL AL PRINCIPIO
-  const recPrincipal =
-    ultimo.ia?.recomendacion_principal ||
-    (ultimo.ia?.recomendaciones && ultimo.ia.recomendaciones[0]) ||
-    ultimo.prediccion_nn?.resumen ||
-    "Sin recomendación registrada.";
-
-  document.getElementById("detalle-rec-principal").innerHTML = `
-    <p class="title is-6 mb-1">⭐ Recomendación Principal</p>
-    <p class="is-size-6 has-text-weight-semibold">${recPrincipal}</p>
-  `;
-
-  // 2. GRÁFICA DE SEGUIMIENTO
-  const labels = cronologico.map((r, idx) => r.fecha || `Reg ${idx + 1}`);
-  if (chartInstance) {
-    chartInstance.destroy();
-    chartInstance = null;
-  }
+  contenedorCanvas.innerHTML = `<canvas id="grafica-seguimiento"></canvas>`;
   const ctx = document.getElementById("grafica-seguimiento").getContext("2d");
-  if (typeof Chart !== "undefined") {
-    if (ultimo.categoria === "cultivo") {
-      chartInstance = new Chart(ctx, {
-        type: "line",
-        data: {
-          labels,
-          datasets: [
-            {
-              label: "Índice de Riego (0 a 1)",
-              data: cronologico.map((r) => r.prediccion_nn?.indice_riego ?? 0),
-              borderColor: "#1b5e20",
-              backgroundColor: "rgba(27, 94, 32, 0.15)",
-              tension: 0.25,
-            },
-            {
-              label: "Temperatura (°C)",
-              data: cronologico.map((r) => r.clima?.temp ?? 0),
-              borderColor: "#d97706",
-              backgroundColor: "rgba(217, 119, 6, 0.15)",
-              tension: 0.25,
-            },
-          ],
-        },
-        options: { responsive: true, plugins: { legend: { position: "top" } } },
-      });
-    } else {
-      chartInstance = new Chart(ctx, {
-        type: "line",
-        data: {
-          labels,
-          datasets: [
-            {
-              label: "Peso Promedio (kg)",
-              data: cronologico.map((r) => r.peso_kg ?? 0),
-              borderColor: "#1b5e20",
-              backgroundColor: "rgba(27, 94, 32, 0.15)",
-              tension: 0.25,
-            },
-            {
-              label: "Tamaño / Largo (cm)",
-              data: cronologico.map((r) => r.largo_cm ?? 0),
-              borderColor: "#2563eb",
-              backgroundColor: "rgba(37, 99, 235, 0.15)",
-              tension: 0.25,
-            },
-          ],
-        },
-        options: { responsive: true, plugins: { legend: { position: "top" } } },
-      });
-    }
-  }
+  if (chartInstance) chartInstance.destroy();
 
-  // 3. HISTORIAL FOTOGRÁFICO
-  const fotosCont = document.getElementById("detalle-fotos");
-  const conFoto = todos.filter((r) => r.foto_base64);
-  if (!conFoto.length) {
-    fotosCont.innerHTML = `<div class="column"><p class="has-text-grey">No hay fotografías registradas para este identificador.</p></div>`;
+  const labels = cronologico.map((r) => r.fecha);
+  const datasets = [];
+
+  if (masReciente.categoria === "animal") {
+    datasets.push({
+      label: "Peso Promedio (kg)",
+      data: cronologico.map((r) => Number(r.peso_kg || 0)),
+      borderColor: "#2e7d32",
+      backgroundColor: "rgba(46, 125, 50, 0.15)",
+      tension: 0.3,
+      fill: true,
+    });
+    datasets.push({
+      label: "Tamaño / Largo (cm)",
+      data: cronologico.map((r) => Number(r.largo_cm || 0)),
+      borderColor: "#ef6c00",
+      backgroundColor: "transparent",
+      tension: 0.3,
+    });
   } else {
-    fotosCont.innerHTML = conFoto
-      .map(
-        (r) => `
-        <div class="column is-4">
-          <div class="card p-2">
-            <img src="data:image/jpeg;base64,${r.foto_base64}" style="width:100%;height:110px;object-fit:cover;border-radius:4px;" alt="Foto">
-            <p class="is-size-7 has-text-grey mt-1">🕒 ${r.fecha}</p>
-            <p class="is-size-7">${r.categoria === "cultivo" ? `Temp: ${r.clima?.temp}°C` : `Peso: ${r.peso_kg} kg | Largo: ${r.largo_cm} cm`}</p>
-          </div>
-        </div>
-      `
-      )
-      .join("");
+    datasets.push({
+      label: "Demanda Hídrica NN (%)",
+      data: cronologico.map((r) => Number(((r.prediccion_nn?.indice_riego || 0) * 100).toFixed(1))),
+      borderColor: "#0277bd",
+      backgroundColor: "rgba(2, 119, 189, 0.15)",
+      tension: 0.3,
+      fill: true,
+    });
+    datasets.push({
+      label: "Temperatura (°C)",
+      data: cronologico.map((r) => Number(r.clima?.temp || 0)),
+      borderColor: "#d84315",
+      backgroundColor: "transparent",
+      tension: 0.3,
+    });
   }
 
-  // 4. ANOTACIONES DEL PERSONAL
-  const anotCont = document.getElementById("detalle-anotaciones");
-  const anotaciones = todos.filter((r) => r.anotacion_personal && r.anotacion_personal.trim() !== "");
-  if (!anotaciones.length) {
-    anotCont.innerHTML = `<p class="has-text-grey">Sin anotaciones del personal en este seguimiento.</p>`;
-  } else {
-    anotCont.innerHTML = anotaciones
-      .map((r) => `<p class="mb-1">• <strong>[${r.fecha}]</strong> ${r.anotacion_personal}</p>`)
-      .join("");
-  }
-
-  // 5. RECOMENDACIONES DE LA INTELIGENCIA ARTIFICIAL
-  const iaCont = document.getElementById("detalle-ia");
-  const recs = ultimo.ia?.recomendaciones || [];
-  const alertas = ultimo.ia?.alertas || [];
-  const visual = ultimo.ia?.analisis_visual_ia || "";
-
-  iaCont.innerHTML = `
-    <p class="mb-1"><strong>Diagnóstico:</strong> ${ultimo.ia?.diagnostico || ultimo.prediccion_nn?.resumen || ""}</p>
-    ${recs.length ? `<ul class="mb-2">${recs.map((x) => `<li>✅ ${x}</li>`).join("")}</ul>` : ""}
-    ${alertas.length ? `<ul class="has-text-danger mb-2">${alertas.map((a) => `<li>⚠️ ${a}</li>`).join("")}</ul>` : ""}
-    ${visual ? `<div class="box has-background-white p-2 mt-2" style="white-space:pre-line;"><strong>Análisis Visual IA:</strong>\n${visual}</div>` : ""}
-  `;
+  chartInstance = new Chart(ctx, {
+    type: "line",
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { position: "bottom" } },
+    },
+  });
 }
 
-function renderHistorialLateral(historial) {
+function cerrarDetalleLote() {
+  document.getElementById("vista-detalle-lote").style.display = "none";
+  document.getElementById("vista-principal").style.display = "flex";
+}
+
+function renderHistorialLateral() {
   const cont = document.getElementById("historial-lateral");
-  if (!historial || !historial.length) {
-    cont.innerHTML = `<p class="has-text-grey is-size-7">Sin registros aún.</p>`;
+  const filtroUser = document.getElementById("filtro-usuario").value;
+  let historial = getHistorialLocal();
+
+  if (filtroUser && filtroUser !== "TODOS") {
+    historial = historial.filter((r) => r.usuario?.nombre === filtroUser);
+  }
+
+  if (!historial.length) {
+    cont.innerHTML = `<p class="has-text-grey is-size-7">No hay lotes registrados todavía.</p>`;
     return;
   }
 
   const grupos = {};
   for (const reg of historial) {
-    const id = reg.identificador || "SIN-ID";
+    const id = (reg.identificador || "SIN-ID").trim().toUpperCase();
     if (!grupos[id]) grupos[id] = [];
     grupos[id].push(reg);
   }
 
-  cont.innerHTML = Object.entries(grupos)
-    .map(([id, items]) => {
-      const primero = items[0];
-      const tagClass = primero.categoria === "cultivo" ? "is-success" : "is-warning";
-      const subtitulo =
-        primero.categoria === "cultivo"
-          ? `Cultivo: ${primero.producto} | Área: ${primero.area_ha} ha (${primero.area_m2} m²)`
-          : `Animal: ${primero.producto} | Lote: ${primero.cantidad} und. | Producto: ${primero.proposito || ""}`;
+  cont.innerHTML = "";
+  Object.entries(grupos).forEach(([id, items]) => {
+    const ultimo = items[0];
+    const fotosCount = items.filter((i) => i.foto_base64).length;
+    const tagClass = ultimo.categoria === "cultivo" ? "is-success" : "is-warning";
 
-      const recTop = primero.ia?.recomendacion_principal || primero.prediccion_nn?.resumen || "";
+    const card = document.createElement("div");
+    card.className = "box p-3 mb-3 has-background-white-bis lote-card";
+    card.style.borderLeft = "5px solid #2e7d32";
+    card.dataset.id = id;
+    card.addEventListener("click", () => abrirDetalleLote(id));
 
-      return `
-        <div class="box p-3 mb-3 has-background-white-bis" style="border-left: 4px solid #2e7d32;">
-          <div class="is-flex is-justify-content-space-between is-align-items-center mb-1">
-            <strong>🏷️ ${id}</strong>
-            <span class="tag is-small ${tagClass}">${primero.categoria} (${items.length})</span>
-          </div>
-          <p class="is-size-7 has-text-grey mb-1">${subtitulo}</p>
-          <p class="is-size-7 mb-2"><strong>⭐ Recomendación principal:</strong> ${recTop}</p>
-          <button type="button" class="button is-small is-link is-light" onclick="abrirDetalleLote('${id.replace(/'/g, "\\'")}')">
-            Abrir seguimiento, gráfica y fotos
-          </button>
-        </div>
-      `;
-    })
-    .join("");
-
-  if (identificadorActivo) {
-    abrirDetalleLote(identificadorActivo);
-  }
+    card.innerHTML = `
+      <div class="is-flex is-justify-content-space-between is-align-items-center mb-1">
+        <strong class="is-size-6">🏷️ ${id} — ${ultimo.producto.toUpperCase()}</strong>
+        <span class="tag is-small ${tagClass}">${ultimo.categoria}</span>
+      </div>
+      <p class="is-size-7 has-text-warning-dark has-text-weight-semibold mb-1">
+        ⭐ ${ultimo.recomendacion_principal || ultimo.prediccion_nn?.resumen}
+      </p>
+      <div class="is-flex is-justify-content-space-between is-size-7 has-text-grey mt-2">
+        <span>📊 ${items.length} registros • 📸 ${fotosCount} fotos</span>
+        <span>👤 ${ultimo.usuario?.nombre || "Personal"} (${ultimo.fecha})</span>
+      </div>
+    `;
+    cont.appendChild(card);
+  });
 }
 
 async function sincronizarPendientes() {
@@ -333,21 +603,27 @@ async function sincronizarPendientes() {
       const data = await res.json();
       setPendientes([]);
       setHistorialLocal(data.historial);
-      renderHistorialLateral(data.historial);
+      if (getSesionActiva()) renderHistorialLateral();
     }
   } catch (_) {}
 }
 
 document.getElementById("form-registro").addEventListener("submit", async (e) => {
   e.preventDefault();
+  const sesion = getSesionActiva();
+  if (!sesion) {
+    aplicarEstadoAutenticacion();
+    return;
+  }
+
   const cat = document.getElementById("categoria").value;
   const file = document.getElementById("foto").files[0];
-  const fotoBase64 = await leerImagenBase64(file);
-  const identificador = document.getElementById(cat === "cultivo" ? "id_cultivo" : "id_animal").value;
+  const fotoBase64 = await comprimirImagenBase64(file);
+  const idLote = document.getElementById(cat === "cultivo" ? "id_cultivo" : "id_animal").value.trim().toUpperCase();
 
   const payload = {
     categoria: cat,
-    identificador,
+    identificador: idLote,
     producto: document.getElementById(cat === "cultivo" ? "prod_cultivo" : "prod_animal").value,
     unidad_area: document.getElementById("unidad_area").value,
     area: document.getElementById("area").value,
@@ -359,7 +635,9 @@ document.getElementById("form-registro").addEventListener("submit", async (e) =>
     peso: document.getElementById("peso").value,
     largo: document.getElementById("largo").value,
     proposito: document.getElementById("proposito").value,
-    anotacion_personal: document.getElementById("anotacion_personal").value,
+    nota_personal: document.getElementById("nota_personal").value,
+    usuario_nombre: sesion.nombre,
+    usuario_rol: sesion.rol,
     api_key: document.getElementById("api_key").value,
     foto_base64: fotoBase64,
   };
@@ -376,10 +654,10 @@ document.getElementById("form-registro").addEventListener("submit", async (e) =>
       const data = await res.json();
       if (data.ok) {
         setHistorialLocal(data.historial);
-        renderResultado(data.registro);
-        renderHistorialLateral(data.historial);
-        abrirDetalleLote(data.registro.identificador);
-        document.getElementById("anotacion_personal").value = "";
+        renderHistorialLateral();
+        document.getElementById("nota_personal").value = "";
+        document.getElementById("foto").value = "";
+        abrirDetalleLote(idLote);
         return;
       }
     } catch (_) {}
@@ -394,10 +672,10 @@ document.getElementById("form-registro").addEventListener("submit", async (e) =>
   hist.unshift(regOffline);
   setHistorialLocal(hist);
 
-  renderResultado(regOffline);
-  renderHistorialLateral(hist);
-  abrirDetalleLote(regOffline.identificador);
-  document.getElementById("anotacion_personal").value = "";
+  renderHistorialLateral();
+  document.getElementById("nota_personal").value = "";
+  document.getElementById("foto").value = "";
+  abrirDetalleLote(idLote);
 });
 
 window.addEventListener("online", actualizarEstadoRed);
@@ -405,15 +683,25 @@ window.addEventListener("offline", actualizarEstadoRed);
 
 (async function init() {
   actualizarEstadoRed();
-  const localHist = getHistorialLocal();
-  renderHistorialLateral(localHist);
+  aplicarEstadoAutenticacion();
+
   if (navigator.onLine) {
     try {
-      const res = await fetch("/api/historial");
-      const data = await res.json();
-      if (data.ok && data.historial.length) {
-        setHistorialLocal(data.historial);
-        renderHistorialLateral(data.historial);
+      const [resH, resU] = await Promise.all([fetch("/api/historial"), fetch("/api/usuarios")]);
+      const dataH = await resH.json();
+      const dataU = await resU.json();
+      if (dataU.ok && dataU.usuarios.length) {
+        const actualesCache = getUsuariosCache();
+        const combinados = dataU.usuarios.map((u) => {
+          const localMatch = actualesCache.find((lu) => lu.nombre.toLowerCase() === u.nombre.toLowerCase());
+          return localMatch && localMatch.password ? { ...u, password: localMatch.password } : u;
+        });
+        setUsuariosCache(combinados);
+        renderFiltroUsuarios();
+      }
+      if (dataH.ok && dataH.historial.length) {
+        setHistorialLocal(dataH.historial);
+        if (getSesionActiva()) renderHistorialLateral();
       }
     } catch (_) {}
   }
