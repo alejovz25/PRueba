@@ -3,32 +3,97 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AgroIA - Cultivos y Animales</title>
+  <title>AgroIA - Gestión Multiusuario, Gráficas y Galería</title>
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#1b5e20">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    .priority-banner {
+      background: linear-gradient(135deg, #fff8e1, #ffecb3);
+      border-left: 6px solid #ff8f00;
+      border-radius: 8px;
+      padding: 16px;
+    }
+    .photo-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 12px;
+    }
+    .photo-card img {
+      width: 100%;
+      height: 130px;
+      object-fit: cover;
+      border-radius: 6px;
+    }
+    .lote-card {
+      cursor: pointer;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .lote-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 16px rgba(0,0,0,0.08);
+    }
+  </style>
 </head>
 <body class="has-background-light py-4 px-3">
   <div class="container" style="max-width: 1400px;">
+    
+    <!-- BARRA SUPERIOR MULTIUSUARIO -->
     <div class="box has-background-success-dark has-text-white mb-4">
-      <div class="level">
-        <div class="level-left">
-          <div>
-            <h1 class="title is-4 has-text-white mb-1">🌾 AgroIA - Gestión Remota y Sin Internet</h1>
-            <p class="is-size-7 has-text-success-light">Maíz, Yuca, Ñame, Plátano | Gallinas, Pollos, Cerdo, Vaca y Reses</p>
+      <div class="columns is-vcentered">
+        <div class="column">
+          <h1 class="title is-4 has-text-white mb-1">🌾 AgroIA - Control de Campo Multiusuario</h1>
+          <p class="is-size-7 has-text-success-light">Seguimiento por Lote/Parcela • Gráficas • Historial Fotográfico • Online y Sin Internet</p>
+        </div>
+        <div class="column is-narrow">
+          <div class="field has-addons mb-1">
+            <div class="control">
+              <span class="button is-small is-static">👤 Usuario:</span>
+            </div>
+            <div class="control">
+              <div class="select is-small">
+                <select id="select-usuario" onchange="cambiarUsuarioActivo()"></select>
+              </div>
+            </div>
+            <div class="control">
+              <button type="button" class="button is-small is-warning" onclick="toggleNuevoUsuario()">+ Nuevo</button>
+            </div>
+          </div>
+          <div class="has-text-right">
+            <span id="estado-red" class="tag is-small is-success">🌐 En línea</span>
           </div>
         </div>
-        <div class="level-right">
-          <span id="estado-red" class="tag is-medium is-success">🌐 En línea</span>
+      </div>
+
+      <!-- Formulario rápido para crear usuario -->
+      <div id="box-nuevo-usuario" class="box p-3 mt-2 has-background-white-ter" style="display:none;">
+        <div class="columns is-mobile is-variable is-1 is-vcentered">
+          <div class="column">
+            <input id="nuevo-user-nombre" class="input is-small" type="text" placeholder="Nombre del trabajador o técnico">
+          </div>
+          <div class="column is-4">
+            <div class="select is-small is-fullwidth">
+              <select id="nuevo-user-rol">
+                <option value="Operario">Operario de Campo</option>
+                <option value="Técnico">Técnico / Veterinario</option>
+                <option value="Administrador">Administrador</option>
+              </select>
+            </div>
+          </div>
+          <div class="column is-narrow">
+            <button type="button" class="button is-small is-success" onclick="crearUsuario()">Guardar Usuario</button>
+          </div>
         </div>
       </div>
     </div>
 
-    <div class="columns">
-      <!-- IZQUIERDA: FORMULARIO -->
+    <!-- VISTA 1: PANEL PRINCIPAL (FORMULARIO + LISTA DE LOTES) -->
+    <div id="vista-principal" class="columns">
+      <!-- IZQUIERDA: FORMULARIO DE REGISTRO -->
       <div class="column is-5">
         <div class="box">
-          <h2 class="title is-5 has-text-success mb-3">📝 Nuevo Seguimiento</h2>
+          <h2 class="title is-5 has-text-success mb-3">📝 Registrar Seguimiento</h2>
           <form id="form-registro">
             <div class="field">
               <label class="label is-small">Categoría</label>
@@ -44,7 +109,7 @@
             <div id="bloque-cultivo" class="box has-background-white-bis p-3">
               <p class="title is-6 has-text-success mb-2">Cultivo, Área y Clima</p>
               <div class="field">
-                <label class="label is-small">Identificador de Parcela</label>
+                <label class="label is-small">Identificador de Parcela / Lote</label>
                 <input id="id_cultivo" class="input is-small" type="text" value="PARCELA-MAIZ-01" required>
               </div>
               <div class="field">
@@ -74,7 +139,7 @@
                 </div>
               </div>
 
-              <!-- CLIMA EXCLUSIVO CULTIVOS -->
+              <!-- CLIMA SOLO CULTIVOS -->
               <div class="box has-background-white p-2 mt-2" style="border-left: 3px solid #00947e;">
                 <p class="is-size-7 has-text-weight-bold has-text-link mb-1">🌦️ Apartado de Clima (Cultivos)</p>
                 <div class="columns is-multiline is-mobile is-variable is-1">
@@ -139,8 +204,14 @@
               </div>
             </div>
 
+            <!-- ANOTACIONES DEL PERSONAL -->
             <div class="field">
-              <label class="label is-small">Fotografía (Opcional)</label>
+              <label class="label is-small">✍️ Anotaciones / Observaciones del Personal</label>
+              <textarea id="nota_personal" class="textarea is-small" rows="2" placeholder="Ej. Se observan hojas amarillas en el borde norte, o animales con buen apetito..."></textarea>
+            </div>
+
+            <div class="field">
+              <label class="label is-small">📸 Fotografía del Seguimiento (Opcional)</label>
               <input id="foto" class="input is-small" type="file" accept="image/*">
             </div>
 
@@ -149,21 +220,81 @@
               <input id="api_key" class="input is-small" type="password" placeholder="AIza...">
             </div>
 
-            <button type="submit" class="button is-success is-fullwidth">🚀 Analizar y Guardar</button>
+            <button type="submit" class="button is-success is-fullwidth">🚀 Guardar y Ver Ficha del Lote</button>
           </form>
-
-          <div id="resultado-actual" class="mt-4" style="display:none;"></div>
         </div>
       </div>
 
-      <!-- DERECHA: HISTORIAL AL COSTADO AGRUPADO POR IDENTIFICADOR -->
+      <!-- DERECHA: LOTES Y PARCELAS CON ACCESO AL EXPEDIENTE -->
       <div class="column is-7">
-        <div class="box" style="max-height: 820px; overflow-y: auto;">
-          <h2 class="title is-5 has-text-grey-dark mb-3">📋 Historial por Identificador (Parcela / Lote)</h2>
+        <div class="box" style="max-height: 850px; overflow-y: auto;">
+          <div class="level mb-3">
+            <div class="level-left">
+              <h2 class="title is-5 has-text-grey-dark mb-0">📋 Lotes y Parcelas Activos</h2>
+            </div>
+            <div class="level-right">
+              <div class="select is-small">
+                <select id="filtro-usuario" onchange="renderHistorialLateral()">
+                  <option value="TODOS">Todos los usuarios</option>
+                </select>
+              </div>
+            </div>
+          </div>
+          <p class="is-size-7 has-text-grey mb-3">Haz clic en cualquier lote o parcela para abrir su historial fotográfico, gráfica de evolución, notas del personal y recomendaciones IA.</p>
           <div id="historial-lateral"></div>
         </div>
       </div>
     </div>
+
+    <!-- VISTA 2: EXPEDIENTE COMPLETO DEL LOTE / PARCELA (SE ABRE AL GUARDAR O AL HACER CLIC) -->
+    <div id="vista-detalle-lote" style="display:none;">
+      <div class="mb-3 is-flex is-justify-content-space-between is-align-items-center">
+        <button type="button" class="button is-small is-dark" onclick="cerrarDetalleLote()">⬅️ Volver al Panel Principal</button>
+        <span id="detalle-badge-tipo" class="tag is-medium is-success"></span>
+      </div>
+
+      <div class="box">
+        <h2 id="detalle-titulo" class="title is-3 mb-1"></h2>
+        <p id="detalle-subtitulo" class="subtitle is-6 has-text-grey mb-4"></p>
+
+        <!-- 1. RECOMENDACIÓN PRINCIPAL AL PRINCIPIO -->
+        <div class="priority-banner mb-5">
+          <p class="is-size-7 has-text-weight-bold has-text-warning-dark is-uppercase mb-1">⭐ Recomendación Principal (Acción Prioritaria)</p>
+          <p id="detalle-rec-principal" class="is-size-5 has-text-weight-bold has-text-dark"></p>
+        </div>
+
+        <div class="columns">
+          <!-- 2. GRÁFICA DE SEGUIMIENTO -->
+          <div class="column is-7">
+            <div class="box has-background-white-bis">
+              <h3 class="title is-6 mb-2">📈 Gráfica de Seguimiento y Evolución</h3>
+              <canvas id="grafica-seguimiento" height="150"></canvas>
+            </div>
+          </div>
+
+          <!-- 3. RECOMENDACIONES DE LA IA Y RED NEURONAL -->
+          <div class="column is-5">
+            <div class="box has-background-white-bis" style="height:100%;">
+              <h3 class="title is-6 mb-2">🤖 Recomendaciones de la IA y Red Neuronal</h3>
+              <div id="detalle-ia-lista" class="content is-small"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4. HISTORIAL FOTOGRÁFICO -->
+        <div class="box has-background-white-bis mb-4">
+          <h3 class="title is-6 mb-2">📸 Historial Fotográfico del Lote</h3>
+          <div id="detalle-galeria-fotos"></div>
+        </div>
+
+        <!-- 5. ANOTACIONES DEL PERSONAL Y LÍNEA DE TIEMPO -->
+        <div class="box has-background-white-bis">
+          <h3 class="title is-6 mb-3">📝 Anotaciones del Personal y Bitácora Cronológica</h3>
+          <div id="detalle-bitacora"></div>
+        </div>
+      </div>
+    </div>
+
   </div>
   <script src="/app.js"></script>
 </body>

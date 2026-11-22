@@ -8,7 +8,13 @@ from PIL import Image
 import torch
 
 from models.train_models import AnimalNN, CultivoNN, PRODUCTOS_ANIMAL, PRODUCTOS_CULTIVO, entrenar
-from backend.storage import agregar_registro, cargar_historial, guardar_historial
+from backend.storage import (
+    agregar_registro,
+    cargar_historial,
+    cargar_usuarios,
+    guardar_historial,
+    registrar_usuario,
+)
 
 app = Flask(
     __name__,
@@ -36,7 +42,7 @@ def convertir_area(valor, unidad):
 
 
 def evaluar_cultivo(payload):
-    identificador = (payload.get("identificador") or "PARCELA-01").strip()
+    identificador = (payload.get("identificador") or "PARCELA-01").strip().upper()
     producto = (payload.get("producto") or "maiz").lower()
     unidad_area = payload.get("unidad_area", "ha")
     area_ha, area_m2 = convertir_area(payload.get("area", 1.0), unidad_area)
@@ -56,11 +62,20 @@ def evaluar_cultivo(payload):
 
     alertas = []
     if temp > 34:
-        alertas.append("Temperatura alta (>34°C): vigilar estrés hídrico y foliar.")
+        alertas.append("Temperatura alta (>34°C): riesgo de estrés hídrico.")
     if lluvia_mm >= 15:
-        alertas.append("Lluvia alta registrada: reducir riego artificial y revisar drenaje.")
+        alertas.append("Lluvia significativa: suspender o reducir riego artificial.")
     if hum < 45:
-        alertas.append("Humedad relativa baja (<45%): mayor evapotranspiración.")
+        alertas.append("Baja humedad ambiental (<45%): vigilar evapotranspiración.")
+
+    if lluvia_mm >= 15:
+        rec_principal = f"SUSPENDER RIEGO hoy en {identificador} ({producto}) por lluvia acumulada de {lluvia_mm} mm y revisar drenajes."
+    elif indice_riego >= 0.7:
+        rec_principal = f"ACTIVAR RIEGO INTENSIVO ({indice_riego*100:.0f}%) en las {area_ha:.2f} ha ({area_m2:.0f} m²) de {producto} durante horas frescas."
+    elif indice_riego >= 0.4:
+        rec_principal = f"APLICAR RIEGO MODERADO ({indice_riego*100:.0f}%) en {identificador} y monitorear humedad del suelo."
+    else:
+        rec_principal = f"MANTENER RIEGO MÍNIMO ({indice_riego*100:.0f}%) en {identificador}; condiciones climáticas estables para {producto}."
 
     return {
         "categoria": "cultivo",
@@ -77,13 +92,16 @@ def evaluar_cultivo(payload):
         },
         "prediccion_nn": {
             "indice_riego": round(indice_riego, 2),
+            "valor_grafico": round(indice_riego * 100, 1),
+            "etiqueta_grafico": "Demanda Hídrica (%)",
             "resumen": f"Demanda hídrica: {indice_riego*100:.0f}% para {producto} ({area_ha:.2f} ha / {area_m2:.0f} m²).",
         },
+        "recomendacion_principal": rec_principal,
     }
 
 
 def evaluar_animal(payload):
-    identificador = (payload.get("identificador") or "LOTE-01").strip()
+    identificador = (payload.get("identificador") or "LOTE-01").strip().upper()
     producto = (payload.get("producto") or "cerdo").lower()
     cantidad = int(float(payload.get("cantidad", 1)))
     peso = float(payload.get("peso", 0.0))
@@ -98,7 +116,13 @@ def evaluar_animal(payload):
         )
         indice_desarrollo = float(modelo_animal(x).item())
 
-    etapa = "Óptimo para producción/comercialización" if indice_desarrollo >= 0.55 else "En crecimiento y desarrollo"
+    if indice_desarrollo >= 0.55:
+        etapa = "Óptimo para producción/comercialización"
+        rec_principal = f"LOTE LISTO ({identificador}): Programar salida comercial o etapa de {proposito} para los {cantidad} {producto} (peso prom. {peso} kg)."
+    else:
+        etapa = "En fase de crecimiento y seguimiento"
+        rec_principal = f"CONTINUAR ENGORDE / DESARROLLO en {identificador}: Mantener ración balanceada y control sanitario para {cantidad} {producto} (actual: {peso} kg / {largo} cm)."
+
     return {
         "categoria": "animal",
         "identificador": identificador,
@@ -109,44 +133,55 @@ def evaluar_animal(payload):
         "largo_cm": largo,
         "prediccion_nn": {
             "indice_desarrollo": round(indice_desarrollo, 2),
+            "valor_grafico": peso,
+            "etiqueta_grafico": "Peso Promedio (kg)",
             "resumen": f"{etapa} ({producto}, lote de {cantidad} und., {peso} kg, {largo} cm).",
         },
+        "recomendacion_principal": rec_principal,
     }
 
 
-def estructurar_ia(base_info, historial_previo, foto_bytes=None, api_key=None):
-    estructura = {
-        "diagnostico": base_info["prediccion_nn"]["resumen"],
-        "contexto_historial": f"Registros previos acumulados para '{base_info['identificador']}': {len(historial_previo)}.",
-        "recomendaciones": [],
-        "alertas": [],
-    }
+def estructurar_ia(base_info, historial_previo, nota_personal="", foto_bytes=None, api_key=None):
+    recomendaciones = []
+    alertas = []
 
     if base_info["categoria"] == "cultivo":
-        estructura["alertas"].extend(base_info["clima"]["alertas"])
-        estructura["recomendaciones"].extend([
-            f"Aplicar nivel de riego {base_info['prediccion_nn']['indice_riego']} ajustado a {base_info['area_ha']} ha ({base_info['area_m2']} m²).",
-            f"Monitorear vigor, plagas y coloración en {base_info['producto']}.",
+        alertas.extend(base_info["clima"]["alertas"])
+        recomendaciones.extend([
+            f"Ajustar lámina de riego al {base_info['prediccion_nn']['indice_riego']*100:.0f}% en {base_info['area_ha']} ha.",
+            f"Verificar presencia de plagas o deficiencias nutricionales en hojas de {base_info['producto']}.",
         ])
     else:
-        estructura["recomendaciones"].extend([
-            f"Controlar ganancia de peso ({base_info['peso_kg']} kg) y talla ({base_info['largo_cm']} cm) en {base_info['cantidad']} {base_info['producto']}.",
-            f"Adecuar dieta y manejo sanitario para objetivo: {base_info['proposito']}.",
+        recomendaciones.extend([
+            f"Registrar pesaje periódico de muestra sobre los {base_info['cantidad']} animales del lote.",
+            f"Asegurar disponibilidad de agua limpia y plan sanitario enfocado en {base_info['proposito']}.",
         ])
+
+    if nota_personal:
+        recomendaciones.append(f"Seguimiento a observación de campo: '{nota_personal}'.")
+
+    estructura = {
+        "recomendacion_principal": base_info["recomendacion_principal"],
+        "diagnostico": base_info["prediccion_nn"]["resumen"],
+        "contexto_historial": f"Total de seguimientos previos en este lote/parcela: {len(historial_previo)}.",
+        "recomendaciones": recomendaciones,
+        "alertas": alertas,
+    }
 
     if foto_bytes and api_key:
         try:
             img = Image.open(io.BytesIO(foto_bytes))
             client = genai.Client(api_key=api_key)
             prompt = (
-                f"Analiza esta imagen de '{base_info['identificador']}' ({base_info['producto']}). "
-                f"Contexto: {base_info}. Responde organizado exactamente en 3 viñetas cortas:\n"
-                f"- Estado visual:\n- Desarrollo/características:\n- Acción recomendada:"
+                f"Analiza esta fotografía del lote/parcela '{base_info['identificador']}' ({base_info['producto']}). "
+                f"Nota del personal: '{nota_personal}'. Datos técnicos: {base_info}. "
+                f"Responde de forma muy clara y estructurada en 3 puntos:\n"
+                f"1. ACCIÓN PRIORITARIA:\n2. ESTADO VISUAL Y CRECIMIENTO:\n3. RECOMENDACIÓN COMPLEMENTARIA:"
             )
             resp = client.models.generate_content(model="gemini-2.5-flash", contents=[img, prompt])
             estructura["analisis_visual_ia"] = resp.text
         except Exception as e:
-            estructura["alertas"].append(f"Análisis visual omitido: {e}")
+            estructura["alertas"].append(f"Análisis visual IA no disponible: {e}")
 
     return estructura
 
@@ -156,10 +191,27 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/api/usuarios", methods=["GET", "POST"])
+def api_usuarios():
+    if request.method == "POST":
+        data = request.get_json(force=True) or {}
+        nombre = data.get("nombre", "").strip()
+        rol = data.get("rol", "Operario").strip()
+        if not nombre:
+            return jsonify({"ok": False, "error": "Nombre requerido"}), 400
+        usuarios, nuevo = registrar_usuario(nombre, rol)
+        return jsonify({"ok": True, "usuarios": usuarios, "usuario": nuevo})
+    return jsonify({"ok": True, "usuarios": cargar_usuarios()})
+
+
 @app.route("/api/analizar", methods=["POST"])
 def analizar():
     try:
         form = request.form
+        usuario_nombre = (form.get("usuario_nombre") or "Usuario General").strip()
+        usuario_rol = (form.get("usuario_rol") or "Operario").strip()
+        nota_personal = (form.get("nota_personal") or "").strip()
+
         payload = {
             "categoria": form.get("categoria", "cultivo"),
             "identificador": form.get("identificador"),
@@ -180,12 +232,21 @@ def analizar():
         foto_bytes = request.files["foto"].read() if ("foto" in request.files and request.files["foto"].filename) else None
 
         historial_actual = cargar_historial()
-        previos_id = [r for r in historial_actual if r.get("identificador") == payload.get("identificador")]
+        id_norm = (payload.get("identificador") or "").strip().upper()
+        previos_id = [r for r in historial_actual if r.get("identificador") == id_norm]
 
         base = evaluar_animal(payload) if payload["categoria"] == "animal" else evaluar_cultivo(payload)
-        ia_estructurada = estructurar_ia(base, previos_id, foto_bytes=foto_bytes, api_key=api_key)
+        ia_estructurada = estructurar_ia(
+            base, previos_id, nota_personal=nota_personal, foto_bytes=foto_bytes, api_key=api_key
+        )
 
-        registro = {**base, "ia": ia_estructurada, "foto_base64": payload.get("foto_base64")}
+        registro = {
+            **base,
+            "usuario": {"nombre": usuario_nombre, "rol": usuario_rol},
+            "nota_personal": nota_personal,
+            "ia": ia_estructurada,
+            "foto_base64": payload.get("foto_base64"),
+        }
         actualizado = agregar_registro(registro)
         return jsonify({"ok": True, "registro": registro, "historial": actualizado})
     except Exception as e:
