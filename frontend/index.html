@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AgroIA - Cultivos y Animales</title>
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#1b5e20">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+</head>
+<body class="has-background-light py-4 px-3">
+  <div class="container" style="max-width: 1400px;">
+    <div class="box has-background-success-dark has-text-white mb-4">
+      <div class="level">
+        <div class="level-left">
+          <div>
+            <h1 class="title is-4 has-text-white mb-1">🌾 AgroIA - Gestión Remota y Sin Internet</h1>
+            <p class="is-size-7 has-text-success-light">Maíz, Yuca, Ñame, Plátano | Gallinas, Pollos, Cerdo, Vaca y Reses</p>
+          </div>
+        </div>
+        <div class="level-right">
+          <span id="estado-red" class="tag is-medium is-success">🌐 En línea</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="columns">
+      <!-- IZQUIERDA: FORMULARIO -->
+      <div class="column is-5">
+        <div class="box">
+          <h2 class="title is-5 has-text-success mb-3">📝 Nuevo Seguimiento</h2>
+          <form id="form-registro">
+            <div class="field">
+              <label class="label is-small">Categoría</label>
+              <div class="select is-small is-fullwidth">
+                <select id="categoria" onchange="cambiarCategoria()">
+                  <option value="cultivo">🌱 Cultivo (Maíz, Yuca, Ñame, Plátano)</option>
+                  <option value="animal">🐄 Animal (Gallinas, Pollos, Cerdo, Vaca y Reses)</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- CULTIVOS -->
+            <div id="bloque-cultivo" class="box has-background-white-bis p-3">
+              <p class="title is-6 has-text-success mb-2">Cultivo, Área y Clima</p>
+              <div class="field">
+                <label class="label is-small">Identificador de Parcela</label>
+                <input id="id_cultivo" class="input is-small" type="text" value="PARCELA-MAIZ-01" required>
+              </div>
+              <div class="field">
+                <label class="label is-small">Producto Cultivado</label>
+                <div class="select is-small is-fullwidth">
+                  <select id="prod_cultivo">
+                    <option value="maiz">Maíz</option>
+                    <option value="yuca">Yuca</option>
+                    <option value="ñame">Ñame</option>
+                    <option value="platano">Plátano</option>
+                  </select>
+                </div>
+              </div>
+              <div class="columns is-mobile is-variable is-1">
+                <div class="column">
+                  <label class="label is-small">Área</label>
+                  <input id="area" class="input is-small" type="number" step="any" value="2">
+                </div>
+                <div class="column is-5">
+                  <label class="label is-small">Medida</label>
+                  <div class="select is-small is-fullwidth">
+                    <select id="unidad_area">
+                      <option value="ha">Hectáreas (ha)</option>
+                      <option value="m2">Metros² (m²)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <!-- CLIMA EXCLUSIVO CULTIVOS -->
+              <div class="box has-background-white p-2 mt-2" style="border-left: 3px solid #00947e;">
+                <p class="is-size-7 has-text-weight-bold has-text-link mb-1">🌦️ Apartado de Clima (Cultivos)</p>
+                <div class="columns is-multiline is-mobile is-variable is-1">
+                  <div class="column is-6">
+                    <label class="label is-small">Temp (°C)</label>
+                    <input id="temp" class="input is-small" type="number" step="any" value="28">
+                  </div>
+                  <div class="column is-6">
+                    <label class="label is-small">Radiación (W/m²)</label>
+                    <input id="radiacion" class="input is-small" type="number" step="any" value="700">
+                  </div>
+                  <div class="column is-6">
+                    <label class="label is-small">Humedad (%)</label>
+                    <input id="humedad" class="input is-small" type="number" step="any" value="68">
+                  </div>
+                  <div class="column is-6">
+                    <label class="label is-small">Lluvia (mm)</label>
+                    <input id="lluvia_mm" class="input is-small" type="number" step="any" value="2">
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- ANIMALES -->
+            <div id="bloque-animal" class="box has-background-white-bis p-3" style="display:none;">
+              <p class="title is-6 has-text-warning-dark mb-2">Lotes Animales y Productos</p>
+              <div class="field">
+                <label class="label is-small">Identificador del Lote</label>
+                <input id="id_animal" class="input is-small" type="text" value="LOTE-CERDOS-01" required>
+              </div>
+              <div class="columns is-mobile is-variable is-1">
+                <div class="column">
+                  <label class="label is-small">Especie / Animal</label>
+                  <div class="select is-small is-fullwidth">
+                    <select id="prod_animal">
+                      <option value="gallinas">Gallinas</option>
+                      <option value="pollos">Pollos</option>
+                      <option value="cerdo">Cerdo</option>
+                      <option value="vaca">Vaca</option>
+                      <option value="reses">Reses</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="column">
+                  <label class="label is-small">Cantidad en Lote</label>
+                  <input id="cantidad" class="input is-small" type="number" step="1" value="20">
+                </div>
+              </div>
+              <div class="field">
+                <label class="label is-small">Producto que Ofrece / Va a Producir</label>
+                <input id="proposito" class="input is-small" type="text" value="Carne / Engorde" placeholder="Carne, Leche, Huevos, Cría...">
+              </div>
+              <div class="columns is-mobile is-variable is-1">
+                <div class="column">
+                  <label class="label is-small">Peso Promedio (kg)</label>
+                  <input id="peso" class="input is-small" type="number" step="any" value="95">
+                </div>
+                <div class="column">
+                  <label class="label is-small">Tamaño / Largo (cm)</label>
+                  <input id="largo" class="input is-small" type="number" step="any" value="112">
+                </div>
+              </div>
+            </div>
+
+            <div class="field">
+              <label class="label is-small">Fotografía (Opcional)</label>
+              <input id="foto" class="input is-small" type="file" accept="image/*">
+            </div>
+
+            <div class="field">
+              <label class="label is-small">Gemini API Key (Opcional)</label>
+              <input id="api_key" class="input is-small" type="password" placeholder="AIza...">
+            </div>
+
+            <button type="submit" class="button is-success is-fullwidth">🚀 Analizar y Guardar</button>
+          </form>
+
+          <div id="resultado-actual" class="mt-4" style="display:none;"></div>
+        </div>
+      </div>
+
+      <!-- DERECHA: HISTORIAL AL COSTADO AGRUPADO POR IDENTIFICADOR -->
+      <div class="column is-7">
+        <div class="box" style="max-height: 820px; overflow-y: auto;">
+          <h2 class="title is-5 has-text-grey-dark mb-3">📋 Historial por Identificador (Parcela / Lote)</h2>
+          <div id="historial-lateral"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script src="/app.js"></script>
+</body>
+</html>
